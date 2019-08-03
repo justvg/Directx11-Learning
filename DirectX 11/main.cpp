@@ -4,6 +4,8 @@
 #include <DirectXMath.h>
 #include <DirectXColors.h>
 
+#include <vector>
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
@@ -188,6 +190,106 @@ struct matrix_buffer
 	XMMATRIX View;
 	XMMATRIX Projection;
 };
+
+struct grid
+{
+	std::vector<vertex> Vertices;
+	std::vector<UINT> Indices;
+
+	uint32_t Width, Depth;
+	uint32_t VerticesAlongX, VerticesAlongZ;
+
+	ID3D11Buffer *VB, *IB;
+};
+
+static float
+GetHeight(float X, float Z)
+{
+	return (0.3f*(Z*sinf(0.1f*X) + X*cosf(0.1f*Z)));
+}
+
+static void
+ConstructGrid(grid *Grid, uint32_t VerticesAlongX, uint32_t VerticesAlongZ, uint32_t Width, uint32_t Depth)
+{
+	Grid->Width = Width;
+	Grid->Depth = Depth;
+	Grid->VerticesAlongX = VerticesAlongX;
+	Grid->VerticesAlongZ = VerticesAlongZ;
+
+	Grid->Vertices.resize(VerticesAlongX*VerticesAlongZ);
+	Grid->Indices.resize(3*2*(VerticesAlongX-1)*(VerticesAlongZ-1));
+
+	float StepX = (float)Width / (VerticesAlongX - 1);
+	float StepZ = (float)Depth / (VerticesAlongZ - 1);
+
+	for (uint32_t I = 0; I < VerticesAlongZ; I++)
+	{
+		float Z = 0.5f*Depth - I*StepZ;
+		for (uint32_t J = 0; J < VerticesAlongX; J++)
+		{
+			float X = -0.5f*Width + J*StepX;
+			float Y = GetHeight(X, Z);
+			vertex Vertex;
+			Vertex.Pos = XMFLOAT3(X, Y, Z);
+
+			if (Vertex.Pos.y < -10.0f)
+			{
+				Vertex.Color = XMFLOAT4(1.0f, 0.96f, 0.62f, 1.0f);
+			}
+			else if (Vertex.Pos.y < 5.0f)
+			{
+				Vertex.Color = XMFLOAT4(0.48f, 0.77f, 0.46f, 1.0f);
+			}
+			else if (Vertex.Pos.y < 12.0f)
+			{
+				Vertex.Color = XMFLOAT4(0.1f, 0.48f, 0.19f, 1.0f);
+			}
+			else if (Vertex.Pos.y < 20.0f)
+			{
+				Vertex.Color = XMFLOAT4(0.45f, 0.39f, 0.34f, 1.0f);
+			}
+			else
+			{
+				Vertex.Color = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+			}			Grid->Vertices[I*VerticesAlongX + J] = Vertex;		}
+	}
+
+	UINT K = 0;
+	for (UINT I = 0; I < VerticesAlongZ - 1; I++)
+	{
+		for (UINT J = 0; J < VerticesAlongX - 1; J++)
+		{
+			Grid->Indices[K] = I*VerticesAlongX + J;
+			Grid->Indices[K + 1] = I*VerticesAlongX + J + 1;
+			Grid->Indices[K + 2] = (I + 1)*VerticesAlongX + J;
+			Grid->Indices[K + 3] = I*VerticesAlongX + J + 1;
+			Grid->Indices[K + 4] = (I + 1)*VerticesAlongX + J + 1;
+			Grid->Indices[K + 5] = (I + 1)*VerticesAlongX + J;
+			
+			K += 6;
+		}
+	}
+
+	D3D11_BUFFER_DESC VBDescription;
+	VBDescription.ByteWidth = Grid->Vertices.size()*sizeof(vertex);
+	VBDescription.Usage = D3D11_USAGE_IMMUTABLE;
+	VBDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	VBDescription.CPUAccessFlags = 0;
+	VBDescription.MiscFlags = 0;
+	D3D11_SUBRESOURCE_DATA VBInitData;
+	VBInitData.pSysMem = &Grid->Vertices[0];
+	GlobalDirect3D.Device->CreateBuffer(&VBDescription, &VBInitData, &Grid->VB);
+
+	D3D11_BUFFER_DESC IBDescription;
+	IBDescription.ByteWidth = Grid->Indices.size() * sizeof(UINT);
+	IBDescription.Usage = D3D11_USAGE_IMMUTABLE;
+	IBDescription.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	IBDescription.CPUAccessFlags = 0;
+	IBDescription.MiscFlags = 0;
+	D3D11_SUBRESOURCE_DATA IBInitData;
+	IBInitData.pSysMem = &Grid->Indices[0];
+	GlobalDirect3D.Device->CreateBuffer(&IBDescription, &IBInitData, &Grid->IB);
+}
 
 int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowCode)
@@ -382,7 +484,6 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			VBDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 			VBDescription.CPUAccessFlags = 0;
 			VBDescription.MiscFlags = 0;
-			VBDescription.StructureByteStride = 0;
 			D3D11_SUBRESOURCE_DATA VBInitData;
 			VBInitData.pSysMem = Vertices;
 			Direct3D->Device->CreateBuffer(&VBDescription, &VBInitData, &VB);
@@ -409,7 +510,6 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			IBDescription.BindFlags = D3D11_BIND_INDEX_BUFFER;
 			IBDescription.CPUAccessFlags = 0;
 			IBDescription.MiscFlags = 0;
-			IBDescription.StructureByteStride = 0;
 			D3D11_SUBRESOURCE_DATA IBInitData;
 			IBInitData.pSysMem = Indices;
 			Direct3D->Device->CreateBuffer(&IBDescription, &IBInitData, &IB);
@@ -421,15 +521,17 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			MatrixBufferDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 			MatrixBufferDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 			MatrixBufferDescription.MiscFlags = 0;
-			MatrixBufferDescription.StructureByteStride = 0;
 			Direct3D->Device->CreateBuffer(&MatrixBufferDescription, 0, &MatrixBuffer);
 
 			XMMATRIX Model;
 			XMMATRIX View;
 			XMMATRIX Projection;
 			Model = XMMatrixIdentity();
-			View = XMMatrixLookAtLH(XMVectorSet(-2.0f, 0.0f, -5.0f, 1.0f), XMVectorZero(), XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
-			Projection = XMMatrixPerspectiveFovLH(0.25f*3.14f, (float)Direct3D->WindowWidth/(float)Direct3D->WindowHeight, 1.0f, 100.0f);
+			XMVECTOR CameraPos = XMVectorSet(12.0f, 4.0f, -2.0f, 1.0f);
+			View = XMMatrixLookAtLH(CameraPos, 
+									CameraPos + XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), 
+									XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+			Projection = XMMatrixPerspectiveFovLH(0.25f*3.14f, (float)Direct3D->WindowWidth/(float)Direct3D->WindowHeight, 0.1f, 100.0f);
 			
 			D3D11_MAPPED_SUBRESOURCE MappedResource;
 			matrix_buffer *DataPtr;
@@ -444,6 +546,20 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
 			Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
+			grid Grid;
+			ConstructGrid(&Grid, 300, 300, 30.0f, 30.0f);
+
+			ID3D11RasterizerState *RasterizerState;
+			D3D11_RASTERIZER_DESC RasterizerDescription = {};
+			RasterizerDescription.FillMode = D3D11_FILL_SOLID;
+			RasterizerDescription.CullMode = D3D11_CULL_NONE;
+			RasterizerDescription.FrontCounterClockwise = FALSE;
+			RasterizerDescription.DepthBias = 0;
+			RasterizerDescription.DepthBiasClamp = 0;
+			RasterizerDescription.SlopeScaledDepthBias = 0;
+			RasterizerDescription.DepthClipEnable = TRUE;
+			Direct3D->Device->CreateRasterizerState(&RasterizerDescription, &RasterizerState);
+
 			GlobalRunning = true;
 			LARGE_INTEGER LastCounter = GetWallClock();
 			while (GlobalRunning)
@@ -454,16 +570,19 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->ClearDepthStencilView(Direct3D->DepthStencilView, 
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
+				Direct3D->ImmediateContext->RSSetState(RasterizerState);
 				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
 				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				UINT Stride = sizeof(vertex);
 				UINT Offset = 0;
-				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &VB, &Stride, &Offset);
-				Direct3D->ImmediateContext->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
+				//Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &VB, &Stride, &Offset);
+				//Direct3D->ImmediateContext->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
+				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &Grid.VB, &Stride, &Offset);
+				Direct3D->ImmediateContext->IASetIndexBuffer(Grid.IB, DXGI_FORMAT_R32_UINT, 0);
 				Direct3D->ImmediateContext->VSSetShader(VS, 0, 0);
 				Direct3D->ImmediateContext->PSSetShader(PS, 0, 0);
 
-				Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
+				Direct3D->ImmediateContext->DrawIndexed(Grid.Indices.size(), 0, 0);
 
 				float DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();
