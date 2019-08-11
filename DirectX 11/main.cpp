@@ -183,6 +183,7 @@ ProcessPendingMessages()
 struct vertex
 {
 	vec3 Pos;
+	vec3 Normal;
 	vec4 Color;
 };
 
@@ -191,6 +192,36 @@ struct matrix_buffer
 	mat4 Model;
 	mat4 View;
 	mat4 Projection;
+};
+
+struct dir_light
+{
+	vec3 Diffuse;
+	vec3 Specular;
+	vec3 Dir;
+};
+
+struct point_light
+{
+	vec3 Diffuse;
+	vec3 Specular;
+	vec3 PosW;
+};
+
+struct spot_light
+{
+	vec3 Diffuse;
+	vec3 Specular;
+	vec3 PosW;
+	vec3 Dir;
+};
+
+struct light_info
+{
+	dir_light DirLight;
+	point_light PointLight;
+	spot_light SpotLight;
+	vec3 ViewPosW;
 };
 
 struct grid
@@ -253,7 +284,10 @@ ConstructGrid(grid *Grid, uint32_t VerticesAlongX, uint32_t VerticesAlongZ, uint
 			else
 			{
 				Vertex.Color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-			}			Grid->Vertices[I*VerticesAlongX + J] = Vertex;		}
+			}
+
+			Grid->Vertices[I*VerticesAlongX + J] = Vertex;
+		}
 	}
 
 	UINT K = 0;
@@ -460,13 +494,15 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			D3D11_INPUT_ELEMENT_DESC InputLayoutDescription[] = 
 				{
 					{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-					{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, sizeof(vec3), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+					{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(vertex, Normal), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+					{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(vertex, Color), D3D11_INPUT_PER_VERTEX_DATA, 0 }
 				};
 			Direct3D->Device->CreateInputLayout(InputLayoutDescription, sizeof(InputLayoutDescription)/sizeof(InputLayoutDescription[0]), 
 												VSBuffer->GetBufferPointer(), VSBuffer->GetBufferSize(), &InputLayout);
 			VSBuffer->Release();
 			PSBuffer->Release();
 
+#if 0
 			vertex Vertices[] =
 				{
 					vec3(-1.0f, -1.0f, -1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),
@@ -478,6 +514,51 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 					vec3(1.0f, 1.0f, 1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
 					vec3(1.0f, -1.0f, 1.0f), vec4(0.0f, 1.0f, 1.0f, 1.0f),
 				};
+#endif
+
+			vertex Vertices[] = {
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
+				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f), 
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
+				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
+
+				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),   
+				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f), 
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f), 
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f), 
+				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
+				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
+
+				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 0.0f, 1.0f),
+				vec3(-0.5f,  0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 0.0f, 1.0f), 
+				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 0.0f, 1.0f), 
+				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(0.0f, 0.0f, 1.0f, 1.0f),
+				vec3(-0.5f, -0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(0.0f, 0.0f, 1.0f, 1.0f), 
+				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(0.0f, 0.0f, 1.0f, 1.0f), 
+
+				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f), 
+				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),  
+				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
+				vec3(0.5f, -0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
+				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
+
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),    
+				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f), 
+				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),  
+				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),  
+				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
+
+				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),  
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),   
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),  
+				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
+				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
+			};
 
 			ID3D11Buffer *VB;
 			D3D11_BUFFER_DESC VBDescription;
@@ -490,6 +571,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			VBInitData.pSysMem = Vertices;
 			Direct3D->Device->CreateBuffer(&VBDescription, &VBInitData, &VB);
 
+#if 0
 			UINT Indices[] = {
 				0, 1, 2,
 				0, 2, 3,
@@ -515,6 +597,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			D3D11_SUBRESOURCE_DATA IBInitData;
 			IBInitData.pSysMem = Indices;
 			Direct3D->Device->CreateBuffer(&IBDescription, &IBInitData, &IB);
+#endif
 
 			ID3D11Buffer *MatrixBuffer;
 			D3D11_BUFFER_DESC MatrixBufferDescription;
@@ -529,13 +612,13 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			mat4 View;
 			mat4 Projection;
 			Model = Identity();
-			vec3 CameraPos = vec3(0.0f, 0.0f, -5.0f);
+			vec3 CameraPos = vec3(2.0f, 0.0f, -5.0f);
 			View = LookAt(CameraPos, CameraPos + vec3(0.0f, 0.0f, 1.0f));
 			Projection = Perspective(45.0f, (float)Direct3D->WindowWidth / (float)Direct3D->WindowHeight, 0.1f, 100.0f);
 
 			D3D11_MAPPED_SUBRESOURCE MappedResource;
-			matrix_buffer *DataPtr;
 			Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+			matrix_buffer *DataPtr;
 			DataPtr = (matrix_buffer *)MappedResource.pData;
 			DataPtr->Model = Model;
 			DataPtr->View = View;
@@ -543,10 +626,26 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
 			Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
-#if 0
-			grid Grid;
-			ConstructGrid(&Grid, 300, 300, 30.0f, 30.0f);
-#endif
+			ID3D11Buffer *LightBuffer;
+			D3D11_BUFFER_DESC LightBufferDescription;
+			LightBufferDescription.ByteWidth = sizeof(light_info);
+			LightBufferDescription.Usage = D3D11_USAGE_DYNAMIC;
+			LightBufferDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			LightBufferDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+			LightBufferDescription.MiscFlags = 0;
+			Direct3D->Device->CreateBuffer(&LightBufferDescription, 0, &LightBuffer);
+
+			light_info LightData;
+			LightData.DirLight.Diffuse = vec3(0.4f, 0.4f, 0.4f);
+			LightData.DirLight.Specular = vec3(0.5f, 0.5f, 0.5f);
+			LightData.DirLight.Dir = vec3(0.5f, -0.5f, 0.5f);
+			LightData.PointLight.Diffuse = vec3(0.3f, 0.3f, 0.3f);
+			LightData.PointLight.Specular = vec3(0.7f, 0.7f, 0.7f);
+			LightData.PointLight.PosW = vec3(2.0f, 0.0f, 0.0f);
+			LightData.SpotLight.Diffuse = vec3(0.5f, 0.5f, 0.0f);
+	 		LightData.SpotLight.Specular = vec3(1.0f, 1.0f, 1.0f);
+			LightData.SpotLight.Dir = vec3(0.0f, 0.0f, 1.0f);
+			LightData.ViewPosW = CameraPos;
 
 			ID3D11RasterizerState *RasterizerState;
 			D3D11_RASTERIZER_DESC RasterizerDescription = {};
@@ -574,17 +673,25 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				UINT Stride = sizeof(vertex);
 				UINT Offset = 0;
-#if 0
-				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &Grid.VB, &Stride, &Offset);
-				Direct3D->ImmediateContext->IASetIndexBuffer(Grid.IB, DXGI_FORMAT_R32_UINT, 0);
-#else
 				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &VB, &Stride, &Offset);
-				Direct3D->ImmediateContext->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
-#endif
+				// Direct3D->ImmediateContext->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
+
 				Direct3D->ImmediateContext->VSSetShader(VS, 0, 0);
 				Direct3D->ImmediateContext->PSSetShader(PS, 0, 0);
 
-				Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
+				LightData.PointLight.PosW = vec3(2.0f, 0.0f, 
+												 sinf(GetWallClock().QuadPart / (float)GlobalPerfCounterFrequency.QuadPart)*2.0f);
+				LightData.SpotLight.PosW = vec3(sinf(GetWallClock().QuadPart / (float)GlobalPerfCounterFrequency.QuadPart)*2.0f, 
+												0.0f, -2.0f);
+				Direct3D->ImmediateContext->Map(LightBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+				light_info *LightPtr;
+				LightPtr = (light_info *)MappedResource.pData;
+				memcpy(LightPtr, &LightData, sizeof(LightData));
+				Direct3D->ImmediateContext->Unmap(LightBuffer, 0);
+				Direct3D->ImmediateContext->PSSetConstantBuffers(0, 1, &LightBuffer);
+
+				// Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
+				Direct3D->ImmediateContext->Draw(36, 0);
 
 				float DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();
