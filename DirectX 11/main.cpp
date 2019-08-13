@@ -8,6 +8,8 @@
 
 #include "math.hpp"
 
+#include <WICTextureLoader.h>
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
@@ -184,7 +186,7 @@ struct vertex
 {
 	vec3 Pos;
 	vec3 Normal;
-	vec4 Color;
+	vec2 TexCoords;
 };
 
 struct matrix_buffer
@@ -264,27 +266,6 @@ ConstructGrid(grid *Grid, uint32_t VerticesAlongX, uint32_t VerticesAlongZ, uint
 			float Y = GetHeight(X, Z);
 			vertex Vertex;
 			Vertex.Pos = vec3(X, Y, Z);
-
-			if (Vertex.Pos.y() < -10.0f)
-			{
-				Vertex.Color = vec4(1.0f, 0.96f, 0.62f, 1.0f);
-			}
-			else if (Vertex.Pos.y() < 5.0f)
-			{
-				Vertex.Color = vec4(0.48f, 0.77f, 0.46f, 1.0f);
-			}
-			else if (Vertex.Pos.y() < 12.0f)
-			{
-				Vertex.Color = vec4(0.1f, 0.48f, 0.19f, 1.0f);
-			}
-			else if (Vertex.Pos.y()< 20.0f)
-			{
-				Vertex.Color = vec4(0.45f, 0.39f, 0.34f, 1.0f);
-			}
-			else
-			{
-				Vertex.Color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-			}
 
 			Grid->Vertices[I*VerticesAlongX + J] = Vertex;
 		}
@@ -495,12 +476,34 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				{
 					{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 					{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(vertex, Normal), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-					{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(vertex, Color), D3D11_INPUT_PER_VERTEX_DATA, 0 }
+					{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(vertex, TexCoords), D3D11_INPUT_PER_VERTEX_DATA, 0 }
 				};
 			Direct3D->Device->CreateInputLayout(InputLayoutDescription, sizeof(InputLayoutDescription)/sizeof(InputLayoutDescription[0]), 
 												VSBuffer->GetBufferPointer(), VSBuffer->GetBufferSize(), &InputLayout);
 			VSBuffer->Release();
 			PSBuffer->Release();
+
+			ID3D11Resource *WoodTexture;
+			ID3D11ShaderResourceView *WoodTextureResourceView;
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, 
+									 L"wood.png", &WoodTexture, &WoodTextureResourceView);
+
+			Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &WoodTextureResourceView);
+
+			ID3D11SamplerState *SamplerState;
+			D3D11_SAMPLER_DESC SamplerDescription;
+			SamplerDescription.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+			SamplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+			SamplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+			SamplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+			SamplerDescription.MipLODBias = 0;
+			SamplerDescription.MaxAnisotropy = 1;
+			SamplerDescription.ComparisonFunc = D3D11_COMPARISON_NEVER;
+			SamplerDescription.MinLOD = -D3D11_FLOAT32_MAX;
+			SamplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
+
+			Direct3D->Device->CreateSamplerState(&SamplerDescription, &SamplerState);
+			Direct3D->ImmediateContext->PSSetSamplers(0, 1, &SamplerState);
 
 #if 0
 			vertex Vertices[] =
@@ -517,47 +520,47 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 #endif
 
 			vertex Vertices[] = {
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
-				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f), 
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
-				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
+				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 1.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
+				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 0.0f),
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
 
-				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),   
-				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f), 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f), 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f), 
-				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
-				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
+				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 1.0f),   
+				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 1.0f), 
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 0.0f), 
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 0.0f), 
+				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 0.0f),
+				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 1.0f),
 
-				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 0.0f, 1.0f),
-				vec3(-0.5f,  0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 0.0f, 1.0f), 
-				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 0.0f, 1.0f), 
-				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(0.0f, 0.0f, 1.0f, 1.0f),
-				vec3(-0.5f, -0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(0.0f, 0.0f, 1.0f, 1.0f), 
-				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec4(0.0f, 0.0f, 1.0f, 1.0f), 
+				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(0.0f, 0.0f),
+				vec3(-0.5f,  0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(1.0f, 0.0f), 
+				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(1.0f, 1.0f),
+				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(1.0f, 1.0f),
+				vec3(-0.5f, -0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(0.0f, 1.0f), 
+				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(0.0f, 0.0f), 
 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f), 
-				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),  
-				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
-				vec3(0.5f, -0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
+				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(1.0f, 0.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(0.0f, 0.0f),
+				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(0.0f, 1.0f),
+				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(0.0f, 1.0f), 
+				vec3(0.5f, -0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(1.0f, 1.0f), 
+				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(1.0f, 0.0f), 
 
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),    
-				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f), 
-				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),  
-				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),  
-				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(0.0f, 0.0f),
+				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(1.0f, 0.0f),
+				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(1.0f, 1.0f),
+				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(1.0f, 1.0f),  
+				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(0.0f, 1.0f),
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(0.0f, 0.0f),
 
-				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),  
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),   
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),  
-				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
-				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f), 
+				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 1.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(1.0f, 1.0f),
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(1.0f, 0.0f),
+				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(1.0f, 0.0f),  
+				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 0.0f),
+				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 1.0f), 
 			};
 
 			ID3D11Buffer *VB;

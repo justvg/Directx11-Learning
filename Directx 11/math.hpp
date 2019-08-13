@@ -491,3 +491,118 @@ Perspective(real32 FoV, real32 AspectRatio, real32 Near, real32 Far)
 
 	return(Result);
 }
+
+//
+// NOTE(georgy): vec2
+//
+
+union vec2 
+{
+	vec2() {}
+	explicit vec2(real32 X, real32 Y) { x = X; y = Y; }
+
+	struct
+	{
+		real32 x, y;
+	};
+	real32 E[2];
+};
+
+inline vec2 
+operator+ (vec2 A, vec2 B)
+{
+	A.x = A.x + B.x;
+	A.y = A.y + B.y;
+	return(A);
+}
+
+inline vec2 
+operator- (vec2 A, vec2 B)
+{
+	A.x = A.x - B.x;
+	A.y = A.y - B.y;
+	return(A);
+}
+
+inline vec2
+Hadamard(vec2 A, vec2 B)
+{
+	A.x = A.x * B.x;
+	A.y = A.y * B.y;
+	return(A);
+}
+
+inline vec2 
+operator* (vec2 A, real32 B)
+{
+	A.x = A.x * B;
+	A.y = A.y * B;
+	return(A);
+}
+
+inline vec2 
+operator* (real32 B, vec2 A)
+{
+	A = A * B;
+	return(A);
+}
+
+inline vec2 &
+operator+= (vec2 &A, vec2 B)
+{
+	A = A + B;
+	return(A);
+}
+
+inline vec2 & 
+operator-= (vec2 &A, vec2 B)
+{
+	A = A - B;
+	return(A);
+}
+
+inline vec2 & 
+operator*= (vec2 &A, real32 B)
+{
+	A = A * B;
+	return(A);
+}
+
+inline vec2 
+operator- (vec2 A)
+{
+	A.x = -A.x;
+	A.y = -A.y;
+	return(A);
+}
+
+inline real32 
+Dot(vec2 A, vec2 B)
+{
+	real32 Result = A.x*B.x + A.y*B.y;
+	return(Result);
+}
+
+inline real32 
+LengthSq(vec2 A)
+{
+	return (Dot(A, A));
+}
+
+inline real32 
+Length(vec2 A)
+{
+	return (sqrtf(Dot(A, A)));
+}
+
+inline vec2 
+Normalize(vec2 A)
+{
+	return (A * (1.0f / Length(A)));
+}
+
+inline vec2 
+Lerp(vec2 A, vec2 B, float t)
+{
+	return (A + (B - A)*t);
+}

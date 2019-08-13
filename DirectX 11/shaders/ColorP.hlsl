@@ -3,8 +3,11 @@ struct vertex_out
 	float4 Pos : SV_POSITION;
 	float3 PosW : POSITION;
 	float3 NormalW : NORMAL;
-	float4 Color : COLOR;
+	float2 TexCoords : TEXCOORD;
 };
+
+Texture2D DiffuseMap;
+SamplerState DefaultSampler;
 
 struct dir_light
 {
@@ -97,12 +100,13 @@ float4 PS(vertex_out Input) : SV_TARGET
 {
 	float3 Normal = normalize(Input.NormalW);
 	float3 ViewDir = normalize(ViewPosW - Input.PosW);
+	float3 TexColor = (DiffuseMap.Sample(DefaultSampler, Input.TexCoords)).xyz;
 
-	float3 Color = 0.2f * CalcDirLight(DirLight, Input.Color.xyz, Normal, ViewDir);
+	float3 Color = 0.2f * CalcDirLight(DirLight, TexColor, Normal, ViewDir);
 
-	Color += CalcPointLight(PointLight, Input.PosW, Input.Color.xyz, Normal, ViewDir);
+	Color += CalcPointLight(PointLight, Input.PosW, TexColor, Normal, ViewDir);
 
-	Color += CalcSpotLight(SpotLight, Input.PosW, Input.Color.xyz, Normal, ViewDir);
+	Color += CalcSpotLight(SpotLight, Input.PosW, TexColor, Normal, ViewDir);
 
 	float4 FragColor = float4(Color, 1.0f);
 	return (sqrt(FragColor));
