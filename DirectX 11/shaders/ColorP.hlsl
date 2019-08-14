@@ -96,18 +96,27 @@ float3 CalcSpotLight(spot_light SpotLight, float3 PosW,
 	return(Result);
 }
 
+float3 Fog(float3 SourceColor, float3 FogColor, float Distance, float FogDensity)
+{
+	const float e = 2.71828182845904523536028747135266249;
+	float F = pow(e, -pow(Distance*FogDensity, 2));
+	float3 Result = lerp(FogColor, SourceColor, F);
+	return(Result);
+}
+
 float4 PS(vertex_out Input) : SV_TARGET
 {
 	float3 Normal = normalize(Input.NormalW);
 	float3 ViewDir = normalize(ViewPosW - Input.PosW);
-	float3 TexColor = (DiffuseMap.Sample(DefaultSampler, Input.TexCoords)).xyz;
+	float4 TexColor = DiffuseMap.Sample(DefaultSampler, Input.TexCoords);
 
-	float3 Color = 0.2f * CalcDirLight(DirLight, TexColor, Normal, ViewDir);
+	float3 Color = 0.2f * CalcDirLight(DirLight, TexColor.xyz, Normal, ViewDir);
 
-	Color += CalcPointLight(PointLight, Input.PosW, TexColor, Normal, ViewDir);
+	Color += CalcPointLight(PointLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
 
-	Color += CalcSpotLight(SpotLight, Input.PosW, TexColor, Normal, ViewDir);
+	Color += CalcSpotLight(SpotLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
 
-	float4 FragColor = float4(Color, 1.0f);
+	Color = Fog(Color, float3(0.2549, 0.4117, 1.0), length(ViewPosW - Input.PosW), 0.1);
+	float4 FragColor = float4(Color, TexColor.a);
 	return (sqrt(FragColor));
 }

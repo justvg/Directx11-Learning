@@ -483,12 +483,19 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			VSBuffer->Release();
 			PSBuffer->Release();
 
+#if 0
 			ID3D11Resource *WoodTexture;
 			ID3D11ShaderResourceView *WoodTextureResourceView;
 			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, 
 									 L"wood.png", &WoodTexture, &WoodTextureResourceView);
-
+			WoodTexture->Release();
 			Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &WoodTextureResourceView);
+#endif
+			ID3D11Resource *TransparentTexture;
+			ID3D11ShaderResourceView *TransparentTextureResourceView;
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, 
+									 L"transparent.png", &TransparentTexture, &TransparentTextureResourceView);
+			Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &TransparentTextureResourceView);
 
 			ID3D11SamplerState *SamplerState;
 			D3D11_SAMPLER_DESC SamplerDescription;
@@ -661,17 +668,33 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			RasterizerDescription.DepthClipEnable = TRUE;
 			Direct3D->Device->CreateRasterizerState(&RasterizerDescription, &RasterizerState);
 
+			ID3D11BlendState *BlendState;
+			D3D11_BLEND_DESC BlendDescription = {};
+			BlendDescription.AlphaToCoverageEnable = false;
+			BlendDescription.IndependentBlendEnable = false;
+			BlendDescription.RenderTarget[0].BlendEnable = true;
+			BlendDescription.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+			BlendDescription.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+			BlendDescription.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+			BlendDescription.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+			BlendDescription.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+			BlendDescription.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+			BlendDescription.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+			Direct3D->Device->CreateBlendState(&BlendDescription, &BlendState);
+
 			GlobalRunning = true;
 			LARGE_INTEGER LastCounter = GetWallClock();
 			while (GlobalRunning)
 			{
 				ProcessPendingMessages();
 
-				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::Blue);
+				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::LightCoral);
 				Direct3D->ImmediateContext->ClearDepthStencilView(Direct3D->DepthStencilView, 
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
 				Direct3D->ImmediateContext->RSSetState(RasterizerState);
+				real32 BlendFactors[] = {0.0f, 0.0f, 0.0f, 0.0f};
+				Direct3D->ImmediateContext->OMSetBlendState(BlendState, BlendFactors, 0xFFFFFFFF);
 				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
 				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				UINT Stride = sizeof(vertex);
@@ -694,7 +717,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->PSSetConstantBuffers(0, 1, &LightBuffer);
 
 				// Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
-				Direct3D->ImmediateContext->Draw(36, 0);
+				Direct3D->ImmediateContext->Draw(6, 0);
 
 				float DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();
