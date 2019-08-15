@@ -527,13 +527,6 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 #endif
 
 			vertex Vertices[] = {
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
-				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 1.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
-				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 0.0f),
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
-
 				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 1.0f),   
 				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 1.0f), 
 				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 0.0f), 
@@ -568,6 +561,13 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(1.0f, 0.0f),  
 				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 0.0f),
 				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 1.0f), 
+
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
+				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 1.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
+				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
+				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 0.0f),
+				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
 			};
 
 			ID3D11Buffer *VB;
@@ -621,7 +621,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			mat4 Model;
 			mat4 View;
 			mat4 Projection;
-			Model = Identity();
+			Model = Identity() * Scale(1.0f);
 			vec3 CameraPos = vec3(2.0f, 0.0f, -5.0f);
 			View = LookAt(CameraPos, CameraPos + vec3(0.0f, 0.0f, 1.0f));
 			Projection = Perspective(45.0f, (float)Direct3D->WindowWidth / (float)Direct3D->WindowHeight, 0.1f, 100.0f);
@@ -682,6 +682,42 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			BlendDescription.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 			Direct3D->Device->CreateBlendState(&BlendDescription, &BlendState);
 
+			ID3D11DepthStencilState *StencilPassAlwaysState;
+			D3D11_DEPTH_STENCIL_DESC StencilPassAlwaysDescription;
+			StencilPassAlwaysDescription.DepthEnable = true;
+			StencilPassAlwaysDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+			StencilPassAlwaysDescription.DepthFunc = D3D11_COMPARISON_LESS;
+			StencilPassAlwaysDescription.StencilEnable = true;
+			StencilPassAlwaysDescription.StencilReadMask = 0xFF;
+			StencilPassAlwaysDescription.StencilWriteMask = 0xFF;
+			StencilPassAlwaysDescription.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+			StencilPassAlwaysDescription.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+			StencilPassAlwaysDescription.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
+			StencilPassAlwaysDescription.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+			StencilPassAlwaysDescription.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+			StencilPassAlwaysDescription.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+			StencilPassAlwaysDescription.BackFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
+			StencilPassAlwaysDescription.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+			Direct3D->Device->CreateDepthStencilState(&StencilPassAlwaysDescription, &StencilPassAlwaysState);
+
+			ID3D11DepthStencilState *TESTStencilState;
+			D3D11_DEPTH_STENCIL_DESC TESTStencilDescription;
+			TESTStencilDescription.DepthEnable = true;
+			TESTStencilDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+			TESTStencilDescription.DepthFunc = D3D11_COMPARISON_LESS;
+			TESTStencilDescription.StencilEnable = true;
+			TESTStencilDescription.StencilReadMask = 0xFF;
+			TESTStencilDescription.StencilWriteMask = 0xFF;
+			TESTStencilDescription.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+			TESTStencilDescription.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+			TESTStencilDescription.FrontFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
+			TESTStencilDescription.FrontFace.StencilFunc = D3D11_COMPARISON_LESS;
+			TESTStencilDescription.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+			TESTStencilDescription.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+			TESTStencilDescription.BackFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
+			TESTStencilDescription.BackFace.StencilFunc = D3D11_COMPARISON_LESS;
+			Direct3D->Device->CreateDepthStencilState(&TESTStencilDescription, &TESTStencilState);
+
 			GlobalRunning = true;
 			LARGE_INTEGER LastCounter = GetWallClock();
 			while (GlobalRunning)
@@ -693,6 +729,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
 				Direct3D->ImmediateContext->RSSetState(RasterizerState);
+				Direct3D->ImmediateContext->OMSetDepthStencilState(StencilPassAlwaysState, 1);
 				real32 BlendFactors[] = {0.0f, 0.0f, 0.0f, 0.0f};
 				Direct3D->ImmediateContext->OMSetBlendState(BlendState, BlendFactors, 0xFFFFFFFF);
 				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
@@ -716,8 +753,28 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->Unmap(LightBuffer, 0);
 				Direct3D->ImmediateContext->PSSetConstantBuffers(0, 1, &LightBuffer);
 
+				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+				DataPtr = (matrix_buffer *)MappedResource.pData;
+				DataPtr->Model = Identity();
+				DataPtr->View = View;
+				DataPtr->Projection = Projection;
+				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
+				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
+
 				// Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
-				Direct3D->ImmediateContext->Draw(6, 0);
+				Direct3D->ImmediateContext->Draw(36, 0);
+
+				Direct3D->ImmediateContext->OMSetDepthStencilState(TESTStencilState, 0);
+
+				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+				DataPtr = (matrix_buffer *)MappedResource.pData;
+				DataPtr->Model = Scale(1.5f);
+				DataPtr->View = View;
+				DataPtr->Projection = Projection;
+				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
+				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
+
+				Direct3D->ImmediateContext->Draw(36, 0);
 
 				float DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();
