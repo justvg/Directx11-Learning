@@ -31,4 +31,3 @@ vertex_out VS(vertex_input Input)
 
 	return (Output);
 }
-

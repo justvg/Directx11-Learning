@@ -433,7 +433,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			ViewPort.MaxDepth = 1.0f;
 
 			Direct3D->ImmediateContext->RSSetViewports(1, &ViewPort);
-
+#if 1
 			UINT ShaderFlags = 0;
 #if DEBUG | _DEBUG
 			ShaderFlags |= D3D10_SHADER_DEBUG;
@@ -717,21 +717,71 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			TESTStencilDescription.BackFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
 			TESTStencilDescription.BackFace.StencilFunc = D3D11_COMPARISON_LESS;
 			Direct3D->Device->CreateDepthStencilState(&TESTStencilDescription, &TESTStencilState);
+#endif
+
+			ID3D10Blob *VSNormalsBuffer;
+			ID3D10Blob *GSNormalsBuffer;
+			ID3D10Blob *PSNormalsBuffer;
+			Hr = D3DCompileFromFile(L"shaders/TestVS.hlsl", 0, 0, "VS", "vs_5_0", ShaderFlags, 0,
+									&VSNormalsBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if(FAILED(Hr))
+			{
+				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
+			}
+
+			Hr = D3DCompileFromFile(L"shaders/TestGS.hlsl", 0, 0, "GS", "gs_5_0", ShaderFlags, 0,
+									&GSNormalsBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if(FAILED(Hr))
+			{
+				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
+			}
+
+			Hr = D3DCompileFromFile(L"shaders/TestPS.hlsl", 0, 0, "PS", "ps_5_0", ShaderFlags, 0,
+									&PSNormalsBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if(FAILED(Hr))
+			{
+				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
+			}
+
+			ID3D11VertexShader *VSNormals;
+			ID3D11GeometryShader *GSNormals;
+			ID3D11PixelShader *PSNormals;
+			Direct3D->Device->CreateVertexShader(VSNormalsBuffer->GetBufferPointer(), VSNormalsBuffer->GetBufferSize(), 0, &VSNormals);
+			Direct3D->Device->CreateGeometryShader(GSNormalsBuffer->GetBufferPointer(), GSNormalsBuffer->GetBufferSize(), 0, &GSNormals);
+			Direct3D->Device->CreatePixelShader(PSNormalsBuffer->GetBufferPointer(), PSNormalsBuffer->GetBufferSize(), 0, &PSNormals);
+			PSNormalsBuffer->Release();
+			GSNormalsBuffer->Release();
+			PSNormalsBuffer->Release();
 
 			GlobalRunning = true;
 			LARGE_INTEGER LastCounter = GetWallClock();
 			while (GlobalRunning)
 			{
 				ProcessPendingMessages();
-
-				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::LightCoral);
+				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::Coral);
 				Direct3D->ImmediateContext->ClearDepthStencilView(Direct3D->DepthStencilView, 
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
+#if 1
 				Direct3D->ImmediateContext->RSSetState(RasterizerState);
-				Direct3D->ImmediateContext->OMSetDepthStencilState(StencilPassAlwaysState, 1);
-				real32 BlendFactors[] = {0.0f, 0.0f, 0.0f, 0.0f};
-				Direct3D->ImmediateContext->OMSetBlendState(BlendState, BlendFactors, 0xFFFFFFFF);
+				// Direct3D->ImmediateContext->OMSetDepthStencilState(StencilPassAlwaysState, 1);
+				// real32 BlendFactors[] = {0.0f, 0.0f, 0.0f, 0.0f};
+				// Direct3D->ImmediateContext->OMSetBlendState(BlendState, BlendFactors, 0xFFFFFFFF);
 				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
 				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				UINT Stride = sizeof(vertex);
@@ -740,6 +790,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				// Direct3D->ImmediateContext->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
 
 				Direct3D->ImmediateContext->VSSetShader(VS, 0, 0);
+				Direct3D->ImmediateContext->GSSetShader(0, 0, 0);
 				Direct3D->ImmediateContext->PSSetShader(PS, 0, 0);
 
 				LightData.PointLight.PosW = vec3(2.0f, 0.0f, 
@@ -764,11 +815,14 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				// Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
 				Direct3D->ImmediateContext->Draw(36, 0);
 
-				Direct3D->ImmediateContext->OMSetDepthStencilState(TESTStencilState, 0);
+
+				Direct3D->ImmediateContext->VSSetShader(VSNormals, 0, 0);
+				Direct3D->ImmediateContext->GSSetShader(GSNormals, 0, 0);
+				Direct3D->ImmediateContext->PSSetShader(PSNormals, 0, 0);
 
 				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
 				DataPtr = (matrix_buffer *)MappedResource.pData;
-				DataPtr->Model = Scale(1.5f);
+				DataPtr->Model = Identity();
 				DataPtr->View = View;
 				DataPtr->Projection = Projection;
 				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
@@ -781,7 +835,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				char FPSBuffer[256];
 				//_snprintf_s(FPSBuffer, sizeof(FPSBuffer), "%.02fms/f\n", DeltaTime);
 				//OutputDebugString(FPSBuffer);
-
+#endif
 				Direct3D->SwapChain->Present(0, 0);
 			}
 		}
