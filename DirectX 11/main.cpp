@@ -220,7 +220,7 @@ struct spot_light
 
 struct light_info
 {
-	dir_light DirLight;
+	dir_light DirLight[2];
 	point_light PointLight;
 	spot_light SpotLight;
 	vec3 ViewPosW;
@@ -476,7 +476,11 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				{
 					{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 					{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(vertex, Normal), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-					{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(vertex, TexCoords), D3D11_INPUT_PER_VERTEX_DATA, 0 }
+					{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(vertex, TexCoords), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+					{ "WORLD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+					{ "WORLD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+					{ "WORLD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+					{ "WORLD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 				};
 			Direct3D->Device->CreateInputLayout(InputLayoutDescription, sizeof(InputLayoutDescription)/sizeof(InputLayoutDescription[0]), 
 												VSBuffer->GetBufferPointer(), VSBuffer->GetBufferSize(), &InputLayout);
@@ -526,7 +530,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				};
 #endif
 
-			vertex Vertices[] = {
+			vertex Vertices[] = 
+			{
 				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 1.0f),   
 				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 1.0f), 
 				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 0.0f), 
@@ -580,6 +585,23 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			D3D11_SUBRESOURCE_DATA VBInitData;
 			VBInitData.pSysMem = Vertices;
 			Direct3D->Device->CreateBuffer(&VBDescription, &VBInitData, &VB);
+
+			mat4 InstancedData[] = 
+			{
+				Identity(),
+				Translate(vec3(2.0f, 0.0f, 0.0f)),
+			};
+
+			ID3D11Buffer *VBInstanced;
+			D3D11_BUFFER_DESC VBInstancedDescription;
+			VBInstancedDescription.ByteWidth = sizeof(InstancedData);
+			VBInstancedDescription.Usage = D3D11_USAGE_IMMUTABLE;
+			VBInstancedDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+			VBInstancedDescription.CPUAccessFlags = 0;
+			VBInstancedDescription.MiscFlags = 0;
+			D3D11_SUBRESOURCE_DATA VBInstancedInitData;
+			VBInstancedInitData.pSysMem = InstancedData;
+			Direct3D->Device->CreateBuffer(&VBInstancedDescription, &VBInstancedInitData, &VBInstanced);
 
 #if 0
 			UINT Indices[] = {
@@ -646,9 +668,12 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			Direct3D->Device->CreateBuffer(&LightBufferDescription, 0, &LightBuffer);
 
 			light_info LightData;
-			LightData.DirLight.Diffuse = vec3(0.4f, 0.4f, 0.4f);
-			LightData.DirLight.Specular = vec3(0.5f, 0.5f, 0.5f);
-			LightData.DirLight.Dir = vec3(0.5f, -0.5f, 0.5f);
+			LightData.DirLight[0].Diffuse = vec3(0.4f, 0.4f, 0.4f);
+			LightData.DirLight[0].Specular = vec3(0.5f, 0.5f, 0.5f);
+			LightData.DirLight[0].Dir = vec3(0.5f, -0.5f, 0.5f);
+			LightData.DirLight[1].Diffuse = vec3(0.4f, 0.4f, 0.4f);
+			LightData.DirLight[1].Specular = vec3(0.5f, 0.5f, 0.5f);
+			LightData.DirLight[1].Dir = vec3(-0.5f, -0.5f, -0.5f);
 			LightData.PointLight.Diffuse = vec3(0.3f, 0.3f, 0.3f);
 			LightData.PointLight.Specular = vec3(0.7f, 0.7f, 0.7f);
 			LightData.PointLight.PosW = vec3(2.0f, 0.0f, 0.0f);
@@ -773,7 +798,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			while (GlobalRunning)
 			{
 				ProcessPendingMessages();
-				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::Coral);
+				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::Black);
 				Direct3D->ImmediateContext->ClearDepthStencilView(Direct3D->DepthStencilView, 
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
@@ -784,16 +809,17 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				// Direct3D->ImmediateContext->OMSetBlendState(BlendState, BlendFactors, 0xFFFFFFFF);
 				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
 				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				UINT Stride = sizeof(vertex);
-				UINT Offset = 0;
-				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &VB, &Stride, &Offset);
+				UINT Stride[] = { sizeof(vertex), sizeof(mat4) };
+				UINT Offset[] = { 0, 0 };
+				ID3D11Buffer *VBs[] = { VB, VBInstanced };
+				Direct3D->ImmediateContext->IASetVertexBuffers(0, 2, VBs, Stride, Offset);
 				// Direct3D->ImmediateContext->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
 
 				Direct3D->ImmediateContext->VSSetShader(VS, 0, 0);
 				Direct3D->ImmediateContext->GSSetShader(0, 0, 0);
 				Direct3D->ImmediateContext->PSSetShader(PS, 0, 0);
 
-				LightData.PointLight.PosW = vec3(2.0f, 0.0f, 
+				LightData.PointLight.PosW = vec3(3.5f, 0.0f, 
 												 sinf(GetWallClock().QuadPart / (float)GlobalPerfCounterFrequency.QuadPart)*2.0f);
 				LightData.SpotLight.PosW = vec3(sinf(GetWallClock().QuadPart / (float)GlobalPerfCounterFrequency.QuadPart)*2.0f, 
 												0.0f, -2.0f);
@@ -813,8 +839,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
 				// Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
-				Direct3D->ImmediateContext->Draw(36, 0);
-
+				// Direct3D->ImmediateContext->Draw(36, 0);
+				Direct3D->ImmediateContext->DrawInstanced(36, 2, 0, 0);
 
 				Direct3D->ImmediateContext->VSSetShader(VSNormals, 0, 0);
 				Direct3D->ImmediateContext->GSSetShader(GSNormals, 0, 0);
@@ -828,7 +854,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
 				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
-				Direct3D->ImmediateContext->Draw(36, 0);
+				// Direct3D->ImmediateContext->Draw(36, 0);
+				Direct3D->ImmediateContext->DrawInstanced(36, 2, 0, 0);
 
 				float DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();

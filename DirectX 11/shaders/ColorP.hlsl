@@ -31,9 +31,10 @@ struct spot_light
 	float3 Dir;
 };
 
+#define DIR_LIGHTS_COUNT 2
 cbuffer light_info
 {
-	dir_light DirLight;
+	dir_light DirLight[DIR_LIGHTS_COUNT];
 	point_light PointLight;
 	spot_light SpotLight;
 	float3 ViewPosW;	
@@ -44,7 +45,7 @@ float3 CalcDirLight(dir_light DirLight, float3 MaterialColor,
 {
 	float3 LightDir = normalize(-DirLight.Dir);
 
-	float3 Ambient = 0.2f * DirLight.Diffuse * MaterialColor;
+	float3 Ambient = 0.1f * DirLight.Diffuse * MaterialColor;
 
 	float3 Diffuse = DirLight.Diffuse * MaterialColor * max(dot(Normal, LightDir), 0.0f);
 
@@ -110,13 +111,14 @@ float4 PS(vertex_out Input) : SV_TARGET
 	float3 ViewDir = normalize(ViewPosW - Input.PosW);
 	float4 TexColor = DiffuseMap.Sample(DefaultSampler, Input.TexCoords);
 
-	float3 Color = 0.2f * CalcDirLight(DirLight, TexColor.xyz, Normal, ViewDir);
+	float3 Color = 0.2f * CalcDirLight(DirLight[0], TexColor.xyz, Normal, ViewDir);
+	Color += 0.2f * CalcDirLight(DirLight[1], TexColor.xyz, Normal, ViewDir);
 
 	Color += CalcPointLight(PointLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
 
 	Color += CalcSpotLight(SpotLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
 
-	Color = Fog(Color, float3(0.2549, 0.4117, 1.0), length(ViewPosW - Input.PosW), 0.1);
+	Color = Fog(Color, float3(0.2549, 0.4117, 1.0), length(ViewPosW - Input.PosW), 0.02);
 	float4 FragColor = float4(Color, TexColor.a);
 	return (sqrt(FragColor));
 }

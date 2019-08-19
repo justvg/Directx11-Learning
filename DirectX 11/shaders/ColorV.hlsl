@@ -10,6 +10,7 @@ struct vertex_input
 	float3 Pos : POSITION;
 	float3 Normal : NORMAL;
 	float2 TexCoords : TEXCOORD;
+	float4x4 Model : WORLD;
 };
 
 struct vertex_out
@@ -24,9 +25,9 @@ vertex_out VS(vertex_input Input)
 {
 	vertex_out Output;
 
-	Output.Pos = mul(mul(mul(float4(Input.Pos, 1.0f), Model), View), Projection);
-	Output.PosW = mul(float4(Input.Pos, 1.0f), Model).xyz;
-	Output.NormalW = normalize(mul(Input.Normal, (float3x3)Model));
+	Output.PosW = mul(float4(Input.Pos, 1.0f), Input.Model).xyz;
+	Output.Pos = mul(mul(float4(Output.PosW, 1.0f), View), Projection);
+	Output.NormalW = normalize(mul(Input.Normal, (float3x3)Input.Model));
 	Output.TexCoords = Input.TexCoords;
 
 	return (Output);
