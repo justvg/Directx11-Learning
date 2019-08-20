@@ -6,7 +6,8 @@ struct vertex_out
 	float2 TexCoords : TEXCOORD;
 };
 
-Texture2D DiffuseMap;
+Texture2D DiffuseMap : register(t0);
+TextureCube Cubemap : register(t1);
 SamplerState DefaultSampler;
 
 struct dir_light
@@ -111,14 +112,17 @@ float4 PS(vertex_out Input) : SV_TARGET
 	float3 ViewDir = normalize(ViewPosW - Input.PosW);
 	float4 TexColor = DiffuseMap.Sample(DefaultSampler, Input.TexCoords);
 
-	float3 Color = 0.2f * CalcDirLight(DirLight[0], TexColor.xyz, Normal, ViewDir);
-	Color += 0.2f * CalcDirLight(DirLight[1], TexColor.xyz, Normal, ViewDir);
+	// float3 Color = 0.2f * CalcDirLight(DirLight[0], TexColor.xyz, Normal, ViewDir);
+	// Color += 0.2f * CalcDirLight(DirLight[1], TexColor.xyz, Normal, ViewDir);
 
-	Color += CalcPointLight(PointLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
+	// Color += CalcPointLight(PointLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
 
-	Color += CalcSpotLight(SpotLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
+	// Color += CalcSpotLight(SpotLight, Input.PosW, TexColor.xyz, Normal, ViewDir);
 
-	Color = Fog(Color, float3(0.2549, 0.4117, 1.0), length(ViewPosW - Input.PosW), 0.02);
-	float4 FragColor = float4(Color, TexColor.a);
+	// Color = Fog(Color, float3(0.2549, 0.4117, 1.0), length(ViewPosW - Input.PosW), 0.02);
+	float3 ReflectionV = reflect(-ViewDir, Normal);
+	float3 Color = (float3)Cubemap.Sample(DefaultSampler, ReflectionV);
+
+	float4 FragColor = float4(Color, 1.0);
 	return (sqrt(FragColor));
 }

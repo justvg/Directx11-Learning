@@ -9,6 +9,7 @@
 #include "math.hpp"
 
 #include <WICTextureLoader.h>
+#include <DDSTextureLoader.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -47,10 +48,10 @@ GetWallClock(void)
 	return(Result);
 }
 
-inline float 
+inline real32 
 GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
 {
-	float Result = (End.QuadPart - Start.QuadPart) / (float)GlobalPerfCounterFrequency.QuadPart;
+	real32 Result = (End.QuadPart - Start.QuadPart) / (real32)GlobalPerfCounterFrequency.QuadPart;
 	return(Result);
 }
 
@@ -98,8 +99,8 @@ Resize()
 		D3D11_VIEWPORT ViewPort;
 		ViewPort.TopLeftX = 0.0f;
 		ViewPort.TopLeftY = 0.0f;
-		ViewPort.Width = (float)GlobalDirect3D.WindowWidth;
-		ViewPort.Height = (float)GlobalDirect3D.WindowHeight;
+		ViewPort.Width = (real32)GlobalDirect3D.WindowWidth;
+		ViewPort.Height = (real32)GlobalDirect3D.WindowHeight;
 		ViewPort.MinDepth = 0.0f;
 		ViewPort.MaxDepth = 1.0f;
 
@@ -237,8 +238,8 @@ struct grid
 	ID3D11Buffer *VB, *IB;
 };
 
-inline float
-GetHeight(float X, float Z)
+inline real32
+GetHeight(real32 X, real32 Z)
 {
 	return (0.3f*(Z*sinf(0.1f*X) + X*cosf(0.1f*Z)));
 }
@@ -254,16 +255,16 @@ ConstructGrid(grid *Grid, uint32_t VerticesAlongX, uint32_t VerticesAlongZ, uint
 	Grid->Vertices.resize(VerticesAlongX*VerticesAlongZ);
 	Grid->Indices.resize(3*2*(VerticesAlongX-1)*(VerticesAlongZ-1));
 
-	float StepX = (float)Width / (VerticesAlongX - 1);
-	float StepZ = (float)Depth / (VerticesAlongZ - 1);
+	real32 StepX = (real32)Width / (VerticesAlongX - 1);
+	real32 StepZ = (real32)Depth / (VerticesAlongZ - 1);
 
 	for (uint32_t I = 0; I < VerticesAlongZ; I++)
 	{
-		float Z = 0.5f*Depth - I*StepZ;
+		real32 Z = 0.5f*Depth - I*StepZ;
 		for (uint32_t J = 0; J < VerticesAlongX; J++)
 		{
-			float X = -0.5f*Width + J*StepX;
-			float Y = GetHeight(X, Z);
+			real32 X = -0.5f*Width + J*StepX;
+			real32 Y = GetHeight(X, Z);
 			vertex Vertex;
 			Vertex.Pos = vec3(X, Y, Z);
 
@@ -427,8 +428,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			D3D11_VIEWPORT ViewPort;
 			ViewPort.TopLeftX = 0.0f;
 			ViewPort.TopLeftY = 0.0f;
-			ViewPort.Width = (float)Direct3D->WindowWidth;
-			ViewPort.Height = (float)Direct3D->WindowHeight;
+			ViewPort.Width = (real32)Direct3D->WindowWidth;
+			ViewPort.Height = (real32)Direct3D->WindowHeight;
 			ViewPort.MinDepth = 0.0f;
 			ViewPort.MaxDepth = 1.0f;
 
@@ -473,15 +474,15 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 			ID3D11InputLayout *InputLayout;
 			D3D11_INPUT_ELEMENT_DESC InputLayoutDescription[] = 
-				{
-					{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-					{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(vertex, Normal), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-					{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(vertex, TexCoords), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-					{ "WORLD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-					{ "WORLD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-					{ "WORLD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-					{ "WORLD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-				};
+			{
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(vertex, Normal), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(vertex, TexCoords), D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "WORLD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "WORLD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "WORLD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "WORLD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+			};
 			Direct3D->Device->CreateInputLayout(InputLayoutDescription, sizeof(InputLayoutDescription)/sizeof(InputLayoutDescription[0]), 
 												VSBuffer->GetBufferPointer(), VSBuffer->GetBufferSize(), &InputLayout);
 			VSBuffer->Release();
@@ -499,7 +500,10 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			ID3D11ShaderResourceView *TransparentTextureResourceView;
 			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, 
 									 L"transparent.png", &TransparentTexture, &TransparentTextureResourceView);
-			Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &TransparentTextureResourceView);
+
+			ID3D11Resource *Cubemap;
+			ID3D11ShaderResourceView *CubemapSRV;
+			CreateDDSTextureFromFile(Direct3D->Device, L"Skybox.dds", &Cubemap, &CubemapSRV);
 
 			ID3D11SamplerState *SamplerState;
 			D3D11_SAMPLER_DESC SamplerDescription;
@@ -514,7 +518,6 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			SamplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
 
 			Direct3D->Device->CreateSamplerState(&SamplerDescription, &SamplerState);
-			Direct3D->ImmediateContext->PSSetSamplers(0, 1, &SamplerState);
 
 #if 0
 			vertex Vertices[] =
@@ -603,6 +606,62 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			VBInstancedInitData.pSysMem = InstancedData;
 			Direct3D->Device->CreateBuffer(&VBInstancedDescription, &VBInstancedInitData, &VBInstanced);
 
+			real32 SkyboxVertices[] = 
+			{
+				-1.0f,  1.0f, -1.0f,
+				-1.0f, -1.0f, -1.0f,
+				1.0f, -1.0f, -1.0f,
+				1.0f, -1.0f, -1.0f,
+				1.0f,  1.0f, -1.0f,
+				-1.0f,  1.0f, -1.0f,
+
+				-1.0f, -1.0f,  1.0f,
+				-1.0f, -1.0f, -1.0f,
+				-1.0f,  1.0f, -1.0f,
+				-1.0f,  1.0f, -1.0f,
+				-1.0f,  1.0f,  1.0f,
+				-1.0f, -1.0f,  1.0f,
+
+				1.0f, -1.0f, -1.0f,
+				1.0f, -1.0f,  1.0f,
+				1.0f,  1.0f,  1.0f,
+				1.0f,  1.0f,  1.0f,
+				1.0f,  1.0f, -1.0f,
+				1.0f, -1.0f, -1.0f,
+
+				-1.0f, -1.0f,  1.0f,
+				-1.0f,  1.0f,  1.0f,
+				1.0f,  1.0f,  1.0f,
+				1.0f,  1.0f,  1.0f,
+				1.0f, -1.0f,  1.0f,
+				-1.0f, -1.0f,  1.0f,
+
+				-1.0f,  1.0f, -1.0f,
+				1.0f,  1.0f, -1.0f,
+				1.0f,  1.0f,  1.0f,
+				1.0f,  1.0f,  1.0f,
+				-1.0f,  1.0f,  1.0f,
+				-1.0f,  1.0f, -1.0f,
+
+				-1.0f, -1.0f, -1.0f,
+				-1.0f, -1.0f,  1.0f,
+				1.0f, -1.0f, -1.0f,
+				1.0f, -1.0f, -1.0f,
+				-1.0f, -1.0f,  1.0f,
+				1.0f, -1.0f,  1.0f
+			};
+
+			ID3D11Buffer *VBSkybox;
+			D3D11_BUFFER_DESC VBSkyboxDescription;
+			VBSkyboxDescription.ByteWidth = sizeof(SkyboxVertices);
+			VBSkyboxDescription.Usage = D3D11_USAGE_IMMUTABLE;
+			VBSkyboxDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+			VBSkyboxDescription.CPUAccessFlags = 0;
+			VBSkyboxDescription.MiscFlags = 0;
+			D3D11_SUBRESOURCE_DATA VBSkyboxInitData;
+			VBSkyboxInitData.pSysMem = SkyboxVertices;
+			Direct3D->Device->CreateBuffer(&VBSkyboxDescription, &VBSkyboxInitData, &VBSkybox);
+
 #if 0
 			UINT Indices[] = {
 				0, 1, 2,
@@ -646,7 +705,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			Model = Identity() * Scale(1.0f);
 			vec3 CameraPos = vec3(2.0f, 0.0f, -5.0f);
 			View = LookAt(CameraPos, CameraPos + vec3(0.0f, 0.0f, 1.0f));
-			Projection = Perspective(45.0f, (float)Direct3D->WindowWidth / (float)Direct3D->WindowHeight, 0.1f, 100.0f);
+			Projection = Perspective(45.0f, (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight, 0.1f, 100.0f);
 
 			D3D11_MAPPED_SUBRESOURCE MappedResource;
 			Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
@@ -742,6 +801,14 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			TESTStencilDescription.BackFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
 			TESTStencilDescription.BackFace.StencilFunc = D3D11_COMPARISON_LESS;
 			Direct3D->Device->CreateDepthStencilState(&TESTStencilDescription, &TESTStencilState);
+
+			ID3D11DepthStencilState *SkyboxDepthState;
+			D3D11_DEPTH_STENCIL_DESC SkyboxDepthStateDesc = {};
+			SkyboxDepthStateDesc.DepthEnable = true;
+			SkyboxDepthStateDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+			SkyboxDepthStateDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+			SkyboxDepthStateDesc.StencilEnable = false;
+			Direct3D->Device->CreateDepthStencilState(&SkyboxDepthStateDesc, &SkyboxDepthState);
 #endif
 
 			ID3D10Blob *VSNormalsBuffer;
@@ -786,12 +853,55 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			ID3D11VertexShader *VSNormals;
 			ID3D11GeometryShader *GSNormals;
 			ID3D11PixelShader *PSNormals;
+
 			Direct3D->Device->CreateVertexShader(VSNormalsBuffer->GetBufferPointer(), VSNormalsBuffer->GetBufferSize(), 0, &VSNormals);
 			Direct3D->Device->CreateGeometryShader(GSNormalsBuffer->GetBufferPointer(), GSNormalsBuffer->GetBufferSize(), 0, &GSNormals);
 			Direct3D->Device->CreatePixelShader(PSNormalsBuffer->GetBufferPointer(), PSNormalsBuffer->GetBufferSize(), 0, &PSNormals);
 			PSNormalsBuffer->Release();
 			GSNormalsBuffer->Release();
 			PSNormalsBuffer->Release();
+
+			ID3D10Blob *VSSkyboxBuffer;
+			ID3D10Blob *PSSkyboxBuffer;
+			Hr = D3DCompileFromFile(L"shaders/SkyboxVS.hlsl", 0, 0, "VS", "vs_5_0", ShaderFlags, 0,
+									&VSSkyboxBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if(FAILED(Hr))
+			{
+				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
+			}
+
+			Hr = D3DCompileFromFile(L"shaders/SkyboxPS.hlsl", 0, 0, "PS", "ps_5_0", ShaderFlags, 0, 
+									&PSSkyboxBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if(FAILED(Hr))
+			{
+				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
+			}
+
+			ID3D11VertexShader *VSSkybox;
+			ID3D11PixelShader *PSSkybox;
+			Direct3D->Device->CreateVertexShader(VSSkyboxBuffer->GetBufferPointer(), VSSkyboxBuffer->GetBufferSize(), 0, &VSSkybox);
+			Direct3D->Device->CreatePixelShader(PSSkyboxBuffer->GetBufferPointer(), PSSkyboxBuffer->GetBufferSize(), 0, &PSSkybox);
+
+			ID3D11InputLayout *SkyboxInputLayout;
+			D3D11_INPUT_ELEMENT_DESC SkyboxInputLayoutDescription[] = 
+			{
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+			};
+			Direct3D->Device->CreateInputLayout(SkyboxInputLayoutDescription, 1, 
+												VSSkyboxBuffer->GetBufferPointer(), VSSkyboxBuffer->GetBufferSize(), &SkyboxInputLayout);
+
+			VSSkyboxBuffer->Release();
+			PSSkyboxBuffer->Release();
 
 			GlobalRunning = true;
 			LARGE_INTEGER LastCounter = GetWallClock();
@@ -807,6 +917,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				// Direct3D->ImmediateContext->OMSetDepthStencilState(StencilPassAlwaysState, 1);
 				// real32 BlendFactors[] = {0.0f, 0.0f, 0.0f, 0.0f};
 				// Direct3D->ImmediateContext->OMSetBlendState(BlendState, BlendFactors, 0xFFFFFFFF);
+				Direct3D->ImmediateContext->OMSetDepthStencilState(0, 0);
 				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
 				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				UINT Stride[] = { sizeof(vertex), sizeof(mat4) };
@@ -819,9 +930,13 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->GSSetShader(0, 0, 0);
 				Direct3D->ImmediateContext->PSSetShader(PS, 0, 0);
 
+				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &TransparentTextureResourceView);
+				Direct3D->ImmediateContext->PSSetShaderResources(1, 1, &CubemapSRV);
+				Direct3D->ImmediateContext->PSSetSamplers(0, 1, &SamplerState);
+
 				LightData.PointLight.PosW = vec3(3.5f, 0.0f, 
-												 sinf(GetWallClock().QuadPart / (float)GlobalPerfCounterFrequency.QuadPart)*2.0f);
-				LightData.SpotLight.PosW = vec3(sinf(GetWallClock().QuadPart / (float)GlobalPerfCounterFrequency.QuadPart)*2.0f, 
+												 sinf(GetWallClock().QuadPart / (real32)GlobalPerfCounterFrequency.QuadPart)*2.0f);
+				LightData.SpotLight.PosW = vec3(sinf(GetWallClock().QuadPart / (real32)GlobalPerfCounterFrequency.QuadPart)*2.0f, 
 												0.0f, -2.0f);
 				Direct3D->ImmediateContext->Map(LightBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
 				light_info *LightPtr;
@@ -857,7 +972,31 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				// Direct3D->ImmediateContext->Draw(36, 0);
 				Direct3D->ImmediateContext->DrawInstanced(36, 2, 0, 0);
 
-				float DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
+				
+				Direct3D->ImmediateContext->VSSetShader(VSSkybox, 0, 0);
+				Direct3D->ImmediateContext->GSSetShader(0, 0, 0);
+				Direct3D->ImmediateContext->PSSetShader(PSSkybox, 0, 0);
+				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &CubemapSRV);
+				uint32_t SkyboxStride = 3*sizeof(real32);
+				uint32_t SkyboxOffset = 0;
+				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &VBSkybox, &SkyboxStride, &SkyboxOffset);
+				Direct3D->ImmediateContext->IASetInputLayout(SkyboxInputLayout);
+				Direct3D->ImmediateContext->OMSetDepthStencilState(SkyboxDepthState, 0);
+
+				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+				DataPtr = (matrix_buffer *)MappedResource.pData;
+				DataPtr->Model = Identity();
+				DataPtr->View = View;
+				DataPtr->View.FirstColumn.SetW(0.0f);
+				DataPtr->View.SecondColumn.SetW(0.0f);
+				DataPtr->View.ThirdColumn.SetW(0.0f);
+				DataPtr->Projection = Projection;
+				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
+				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
+
+				Direct3D->ImmediateContext->Draw(36, 0);
+
+				real32 DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();
 				char FPSBuffer[256];
 				//_snprintf_s(FPSBuffer, sizeof(FPSBuffer), "%.02fms/f\n", DeltaTime);
