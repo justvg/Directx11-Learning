@@ -662,6 +662,27 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			VBSkyboxInitData.pSysMem = SkyboxVertices;
 			Direct3D->Device->CreateBuffer(&VBSkyboxDescription, &VBSkyboxInitData, &VBSkybox);
 
+			real32 ScreenQuadVertices[] = 
+			{
+				-1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+				1.0f, 1.0f, 0.0f, 1.0f, 0.0f,
+				1.0f, -1.0f, 0.0f, 1.0f, 1.0f,
+				1.0f, -1.0f, 0.0f, 1.0f, 1.0f,
+				-1.0f, -1.0f, 0.0f, 0.0f, 1.0f,
+				-1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+			};
+
+			ID3D11Buffer *ScreenQuadVB;
+			D3D11_BUFFER_DESC ScreenQuadVBDescription;
+			ScreenQuadVBDescription.ByteWidth = sizeof(ScreenQuadVertices);
+			ScreenQuadVBDescription.Usage = D3D11_USAGE_IMMUTABLE;
+			ScreenQuadVBDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+			ScreenQuadVBDescription.CPUAccessFlags = 0;
+			ScreenQuadVBDescription.MiscFlags = 0;
+			D3D11_SUBRESOURCE_DATA ScreenQuadVBInitData;
+			ScreenQuadVBInitData.pSysMem = ScreenQuadVertices;
+			Direct3D->Device->CreateBuffer(&ScreenQuadVBDescription, &ScreenQuadVBInitData, &ScreenQuadVB);
+
 #if 0
 			UINT Indices[] = {
 				0, 1, 2,
@@ -903,6 +924,91 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			VSSkyboxBuffer->Release();
 			PSSkyboxBuffer->Release();
 
+			ID3D10Blob *VSScreenQuadBuffer;
+			ID3D10Blob *PSScreenQuadBuffer;
+			Hr = D3DCompileFromFile(L"shaders/QuadV.hlsl", 0, 0, "VS", "vs_5_0", ShaderFlags, 0, 
+									&VSScreenQuadBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if(FAILED(Hr))
+			{
+				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
+			}
+
+			Hr = D3DCompileFromFile(L"shaders/QuadP.hlsl", 0, 0, "PS", "ps_5_0", ShaderFlags, 0, 
+									&PSScreenQuadBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if(FAILED(Hr))
+			{
+				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
+			}
+
+			ID3D11VertexShader *VSQuadScreen;
+			ID3D11PixelShader *PSQuadScreen;
+			Direct3D->Device->CreateVertexShader(VSScreenQuadBuffer->GetBufferPointer(), VSScreenQuadBuffer->GetBufferSize(), 0, &VSQuadScreen);
+			Direct3D->Device->CreatePixelShader(PSScreenQuadBuffer->GetBufferPointer(), PSScreenQuadBuffer->GetBufferSize(),0, &PSQuadScreen);
+
+			ID3D11InputLayout *InputLayoutQuad;
+			D3D11_INPUT_ELEMENT_DESC QuadScreenInputLayoutDescription[] = 
+			{
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 3*sizeof(real32), D3D11_INPUT_PER_VERTEX_DATA, 0},
+			};
+			Direct3D->Device->CreateInputLayout(QuadScreenInputLayoutDescription, 2,
+												VSScreenQuadBuffer->GetBufferPointer(), VSScreenQuadBuffer->GetBufferSize(), &InputLayoutQuad);
+			VSScreenQuadBuffer->Release();
+			PSScreenQuadBuffer->Release();
+
+			ID3D11Texture2D *QuadTexture;
+			ID3D11RenderTargetView *QuadTextureRenderTarget;
+			
+			D3D11_TEXTURE2D_DESC QuadTextureDesc = {};
+			QuadTextureDesc.Width = Direct3D->WindowWidth;
+			QuadTextureDesc.Height = Direct3D->WindowHeight;
+			QuadTextureDesc.MipLevels = 1;
+			QuadTextureDesc.ArraySize = 1;
+			QuadTextureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			QuadTextureDesc.SampleDesc.Count = 4;
+			QuadTextureDesc.Usage = D3D11_USAGE_DEFAULT;
+			QuadTextureDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
+			QuadTextureDesc.CPUAccessFlags = 0;
+			QuadTextureDesc.MiscFlags = 0;
+			Direct3D->Device->CreateTexture2D(&QuadTextureDesc, 0, &QuadTexture);
+
+			D3D11_RENDER_TARGET_VIEW_DESC RenderTargetViewDesc = {};
+			RenderTargetViewDesc.Format = QuadTextureDesc.Format;
+			RenderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
+			Direct3D->Device->CreateRenderTargetView(QuadTexture, &RenderTargetViewDesc, &QuadTextureRenderTarget);
+
+			ID3D11Texture2D *QuadTextureDownsampled;
+			ID3D11ShaderResourceView *QuadTextureSRVDownsampled;
+			D3D11_TEXTURE2D_DESC QuadTextureDescDownsampled = {};
+			QuadTextureDescDownsampled.Width = Direct3D->WindowWidth;
+			QuadTextureDescDownsampled.Height = Direct3D->WindowHeight;
+			QuadTextureDescDownsampled.MipLevels = 1;
+			QuadTextureDescDownsampled.ArraySize = 1;
+			QuadTextureDescDownsampled.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			QuadTextureDescDownsampled.SampleDesc.Count = 1;
+			QuadTextureDescDownsampled.Usage = D3D11_USAGE_DEFAULT;
+			QuadTextureDescDownsampled.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			QuadTextureDescDownsampled.CPUAccessFlags = 0;
+			QuadTextureDescDownsampled.MiscFlags = 0;
+			Direct3D->Device->CreateTexture2D(&QuadTextureDescDownsampled, 0, &QuadTextureDownsampled);
+
+			D3D11_SHADER_RESOURCE_VIEW_DESC QuadSRVDesc = {};
+			QuadSRVDesc.Format = QuadTextureDesc.Format;
+			QuadSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			QuadSRVDesc.Texture2D.MostDetailedMip = 0;
+			QuadSRVDesc.Texture2D.MipLevels = 1;
+			Direct3D->Device->CreateShaderResourceView(QuadTextureDownsampled, &QuadSRVDesc, &QuadTextureSRVDownsampled);
+
 			GlobalRunning = true;
 			LARGE_INTEGER LastCounter = GetWallClock();
 			while (GlobalRunning)
@@ -913,6 +1019,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
 #if 1
+				Direct3D->ImmediateContext->ClearRenderTargetView(QuadTextureRenderTarget, Colors::Black);
+				Direct3D->ImmediateContext->OMSetRenderTargets(1, &QuadTextureRenderTarget, Direct3D->DepthStencilView);
 				Direct3D->ImmediateContext->RSSetState(RasterizerState);
 				// Direct3D->ImmediateContext->OMSetDepthStencilState(StencilPassAlwaysState, 1);
 				// real32 BlendFactors[] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -995,6 +1103,17 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
 				Direct3D->ImmediateContext->Draw(36, 0);
+
+				Direct3D->ImmediateContext->ResolveSubresource(QuadTextureDownsampled, 0, QuadTexture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+				Direct3D->ImmediateContext->OMSetRenderTargets(1, &Direct3D->RenderTargetView, Direct3D->DepthStencilView);
+				Direct3D->ImmediateContext->IASetInputLayout(InputLayoutQuad);
+				UINT StrideQuad = 5*sizeof(real32);
+				UINT OffsetQuad = 0;
+				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &ScreenQuadVB, &StrideQuad, &OffsetQuad);
+				Direct3D->ImmediateContext->VSSetShader(VSQuadScreen, 0, 0);
+				Direct3D->ImmediateContext->PSSetShader(PSQuadScreen, 0, 0);
+				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &QuadTextureSRVDownsampled);
+				Direct3D->ImmediateContext->Draw(6, 0);
 
 				real32 DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();
