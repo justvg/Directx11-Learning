@@ -11,9 +11,6 @@
 #define DEG2RAD(Deg) ((Deg)*PI/180.0f)
 #define RAD2DEG(Rad) ((Rad)*180.0f/PI)
 
-#define SHUFFLE3(V, X, Y, Z) (vec3(_mm_shuffle_ps((V).m, (V).m, _MM_SHUFFLE(Z, Z, Y, X))))
-#define SHUFFLE4(V, X, Y, Z, W) (vec4(_mm_shuffle_ps((V).m, (V).m, _MM_SHUFFLE(W, Z, Y, X))))
-
 typedef float real32;
 typedef double real64;
 
@@ -21,341 +18,578 @@ typedef double real64;
 #define global_variable static
 
 //
-// NOTE(georgy): vec3
+// NOTE(georgy): v2
 //
 
-struct vec3
+union v2
 {
-	__m128 m;
-
-	inline vec3() {}
-	inline explicit vec3(const real32 *V) { m = _mm_set_ps(V[2], V[2], V[1], V[0]); }
-	inline explicit vec3(real32 X, real32 Y, real32 Z) { m = _mm_set_ps(Z, Z, Y, X); }
-	inline explicit vec3(__m128 V) { m = V; }
-	inline vec3 __vectorcall vec3i(int32_t X, int32_t Y, int32_t Z) { return(vec3((real32)X, (real32)Y, (real32)Z)); }
-
-	inline real32 __vectorcall x() { return(_mm_cvtss_f32(m)); }
-	inline real32 __vectorcall y() { return(_mm_cvtss_f32(_mm_shuffle_ps(m, m, _MM_SHUFFLE(1, 1, 1, 1)))); }
-	inline real32 __vectorcall z() { return(_mm_cvtss_f32(_mm_shuffle_ps(m, m, _MM_SHUFFLE(2, 2, 2, 2)))); }
-
-	inline vec3 __vectorcall yzx() { return(SHUFFLE3(*this, 1, 2, 0)); }
-	inline vec3 __vectorcall zxy() { return(SHUFFLE3(*this, 2, 0, 1)); }
-
-	void __vectorcall SetX(real32 X)
+	struct
 	{
-		m = _mm_move_ss(m, _mm_set_ss(X));
-	}
-
-	void __vectorcall SetY(real32 Y)
+		real32 x, y;
+	};
+	struct
 	{
-		__m128 Temp = _mm_move_ss(m, _mm_set_ss(Y));
-		Temp = _mm_shuffle_ps(Temp, Temp, _MM_SHUFFLE(3, 2, 0, 0));
-		m = _mm_move_ss(Temp, m);
-	}
+		real32 u, v;
+	};
+	real32 E[2];
 
-	void __vectorcall SetZ(real32 Z)
-	{
-		__m128 Temp = _mm_move_ss(m, _mm_set_ss(Z));
-		Temp = _mm_shuffle_ps(Temp, Temp, _MM_SHUFFLE(3, 0, 1, 0));
-		m = _mm_move_ss(Temp, m);
-	}
-
-	inline real32 __vectorcall operator[] (size_t I) { return(m.m128_f32[I]); }
+	void Normalize();
 };
 
-inline vec3 __vectorcall
-operator+ (vec3 A, vec3 B)
+inline v2
+V2(real32 X, real32 Y)
 {
-	A.m = _mm_add_ps(A.m, B.m);
-	return(A);
-}
+	v2 Result;
 
-inline vec3 __vectorcall
-operator- (vec3 A, vec3 B)
-{
-	A.m = _mm_sub_ps(A.m, B.m);
-	return(A);
-}
+	Result.x = X;
+	Result.y = Y;
 
-inline vec3 __vectorcall
-Hadamard(vec3 A, vec3 B)
-{
-	A.m = _mm_mul_ps(A.m, B.m);
-	return(A);
-}
-
-inline vec3 __vectorcall
-operator* (vec3 A, real32 B)
-{
-	A.m = _mm_mul_ps(A.m, _mm_set1_ps(B));
-	return(A);
-}
-
-inline vec3 __vectorcall
-operator* (real32 B, vec3 A)
-{
-	A = A * B;
-	return(A);
-}
-
-inline vec3 & __vectorcall
-operator+= (vec3 &A, vec3 B)
-{
-	A = A + B;
-	return(A);
-}
-
-inline vec3 & __vectorcall
-operator-= (vec3 &A, vec3 B)
-{
-	A = A - B;
-	return(A);
-}
-
-inline vec3 & __vectorcall
-operator*= (vec3 &A, real32 B)
-{
-	A = A*B;
-	return(A);
-}
-
-inline vec3 __vectorcall
-Min(vec3 A, vec3 B)
-{
-	A.m = _mm_min_ps(A.m, B.m);
-	return(A);
-}
-
-inline vec3 __vectorcall
-Max(vec3 A, vec3 B)
-{
-	A.m = _mm_max_ps(A.m, B.m);
-	return(A);
-}
-
-inline vec3 _vectorcall
-operator- (vec3 A)
-{
-	A = vec3(_mm_setzero_ps()) - A;
-	return(A);
-}
-
-inline vec3 __vectorcall
-Cross(vec3 A, vec3 B)
-{
-	vec3 Result = (Hadamard(A.zxy(), B) - Hadamard(A, B.zxy())).zxy();
-	return(Result);
- }
-
-inline vec3 __vectorcall
-Clamp(vec3 A, vec3 MinClamp, vec3 MaxClamp)
-{
-	return (Min(MaxClamp, Max(MinClamp, A)));
-}
-
-inline real32 __vectorcall
-Sum(vec3 A)
-{
-	return (A.x() + A.y() + A.z());
-}
-
-inline real32 __vectorcall
-Dot(vec3 A, vec3 B)
-{
-	real32 Result = Sum(Hadamard(A, B));
 	return(Result);
 }
 
-inline real32 __vectorcall
-LengthSq(vec3 A)
+inline v2
+operator*(real32 A, v2 B)
 {
-	return (Dot(A, A));
+	v2 Result;
+
+	Result.x = A * B.x;
+	Result.y = A * B.y;
+
+	return(Result);
 }
 
-inline real32 __vectorcall
-Length(vec3 A)
+inline v2
+operator*(v2 B, real32 A)
 {
-	return (sqrtf(Dot(A, A)));
+	v2 Result = A * B;
+
+	return(Result);
 }
 
-inline vec3 __vectorcall
-Normalize(vec3 A)
+inline v2 &
+operator*=(v2 &A, real32 B)
 {
-	return (A * (1.0f / Length(A)));
-}
+	A = B * A;
 
-inline vec3 __vectorcall
-Lerp(vec3 A, vec3 B, float t)
-{
-	return (A + (B - A)*t);
-}
-
-//
-// NOTE(georgy): vec4
-//
-
-struct vec4
-{
-	__m128 m;
-
-	inline vec4() {}
-	inline explicit vec4(const real32 *V) { m = _mm_set_ps(V[3], V[2], V[1], V[0]); }
-	inline explicit vec4(real32 X, real32 Y, real32 Z, real32 W) { m = _mm_set_ps(W, Z, Y, X); }
-	inline explicit vec4(__m128 V) { m = V; }
-	inline explicit vec4(vec3 V, real32 W) { m = V.m; SetW(W); }
-	inline vec4 __vectorcall vec4i(int32_t X, int32_t Y, int32_t Z, int32_t W) { return(vec4((real32)X, (real32)Y, (real32)Z, (real32)W)); }
-
-	inline real32 __vectorcall x() { return(_mm_cvtss_f32(m)); }
-	inline real32 __vectorcall y() { return(_mm_cvtss_f32(_mm_shuffle_ps(m, m, _MM_SHUFFLE(1, 1, 1, 1)))); }
-	inline real32 __vectorcall z() { return(_mm_cvtss_f32(_mm_shuffle_ps(m, m, _MM_SHUFFLE(2, 2, 2, 2)))); }
-	inline real32 __vectorcall w() { return(_mm_cvtss_f32(_mm_shuffle_ps(m, m, _MM_SHUFFLE(3, 3, 3, 3)))); }
-
-	void __vectorcall SetX(real32 X)
-	{
-		m = _mm_move_ss(m, _mm_set_ss(X));
-	}
-
-	void __vectorcall SetY(real32 Y)
-	{
-		__m128 Temp = _mm_move_ss(m, _mm_set_ss(Y));
-		Temp = _mm_shuffle_ps(Temp, Temp, _MM_SHUFFLE(3, 2, 0, 0));
-		m = _mm_move_ss(Temp, m);
-	}
-
-	void __vectorcall SetZ(real32 Z)
-	{
-		__m128 Temp = _mm_move_ss(m, _mm_set_ss(Z));
-		Temp = _mm_shuffle_ps(Temp, Temp, _MM_SHUFFLE(3, 0, 1, 0));
-		m = _mm_move_ss(Temp, m);
-	}
-
-	void __vectorcall SetW(real32 W)
-	{
-		__m128 Temp = _mm_move_ss(m, _mm_set_ss(W));
-		Temp = _mm_shuffle_ps(Temp, Temp, _MM_SHUFFLE(0, 2, 1, 0));
-		m = _mm_move_ss(Temp, m);
-	}
-
-	inline real32 __vectorcall operator[] (size_t I) { return(m.m128_f32[I]); }
-};
-
-inline vec4 __vectorcall
-operator+ (vec4 A, vec4 B)
-{
-	A.m = _mm_add_ps(A.m, B.m);
 	return(A);
 }
 
-inline vec4 __vectorcall
-operator- (vec4 A, vec4 B)
+inline v2
+operator-(v2 A)
 {
-	A.m = _mm_sub_ps(A.m, B.m);
-	return(A);
+	v2 Result;
+
+	Result.x = -A.x;
+	Result.y = -A.y;
+
+	return(Result);
 }
 
-inline vec4 __vectorcall
-Hadamard(vec4 A, vec4 B)
+inline v2
+operator+(v2 A, v2 B)
 {
-	A.m = _mm_mul_ps(A.m, B.m);
-	return(A);
+	v2 Result;
+
+	Result.x = A.x + B.x;
+	Result.y = A.y + B.y;
+
+	return(Result);
 }
 
-inline vec4 __vectorcall
-operator* (vec4 A, real32 B)
-{
-	A.m = _mm_mul_ps(A.m, _mm_set1_ps(B));
-	return(A);
-}
-
-inline vec4 __vectorcall
-operator* (real32 B, vec4 A)
-{
-	A = A * B;
-	return(A);
-}
-
-inline vec4 & __vectorcall
-operator+= (vec4 &A, vec4 B)
+inline v2 &
+operator+=(v2 &A, v2 B)
 {
 	A = A + B;
+
 	return(A);
 }
 
-inline vec4 & __vectorcall
-operator-= (vec4 &A, vec4 B)
+inline v2
+operator-(v2 A, v2 B)
+{
+	v2 Result;
+
+	Result.x = A.x - B.x;
+	Result.y = A.y - B.y;
+
+	return(Result);
+}
+
+inline v2 &
+operator-=(v2 &A, v2 B)
 {
 	A = A - B;
+
 	return(A);
 }
 
-inline vec4 & __vectorcall
-operator*= (vec4 &A, real32 B)
+inline v2
+Hadamard(v2 A, v2 B)
 {
-	A = A*B;
+	v2 Result;
+
+	Result.x = A.x * B.x;
+	Result.y = A.y * B.y;
+
+	return(Result);
+}
+
+inline real32
+Dot(v2 A, v2 B)
+{
+	real32 Result = A.x*B.x + A.y*B.y;
+
+	return(Result);
+}
+
+inline real32
+LengthSq(v2 A)
+{
+	real32 Result = Dot(A, A);
+
+	return(Result);
+}
+
+inline real32
+Length(v2 A)
+{
+	real32 Result = sqrtf(LengthSq(A));
+
+	return(Result);
+}
+
+inline v2
+Normalize(v2 A)
+{
+	v2 Result;
+
+	real32 InvLen = 1.0f / Length(A);
+	Result = InvLen * A;
+
+	return(Result);
+}
+
+inline void
+v2::Normalize()
+{
+	real32 InvLen = 1.0f / Length(*this);
+
+	*this *= InvLen;
+}
+
+//
+// NOTE(georgy): v3
+//
+
+union v3
+{
+	struct
+	{
+		real32 x, y, z;
+	};
+	struct
+	{
+		real32 u, v, w;
+	};
+	struct
+	{
+		real32 r, g, b;
+	};
+	struct
+	{
+		v2 xy;
+		real32 Ignored_0;
+	};
+	struct
+	{
+		real32 Ignored_1;
+		v2 yz;
+	};
+	struct
+	{
+		v2 uv;
+		real32 Ignored_2;
+	};
+	struct
+	{
+		real32 Ignored_3;
+		v2 vw;
+	};
+	real32 E[3];
+
+	void Normalize();
+};
+
+inline v3
+V3(real32 X, real32 Y, real32 Z)
+{
+	v3 Result;
+
+	Result.x = X;
+	Result.y = Y;
+	Result.z = Z;
+
+	return(Result);
+}
+
+inline v3
+operator*(real32 A, v3 B)
+{
+	v3 Result;
+
+	Result.x = A * B.x;
+	Result.y = A * B.y;
+	Result.z = A * B.z;
+
+	return(Result);
+}
+
+inline v3
+operator*(v3 B, real32 A)
+{
+	v3 Result = A * B;
+
+	return(Result);
+}
+
+inline v3 &
+operator*=(v3 &A, real32 B)
+{
+	A = B * A;
+
 	return(A);
 }
 
-inline vec4 __vectorcall
-Min(vec4 A, vec4 B)
+inline v3
+operator-(v3 A)
 {
-	A.m = _mm_min_ps(A.m, B.m);
+	v3 Result;
+
+	Result.x = -A.x;
+	Result.y = -A.y;
+	Result.z = -A.z;
+
+	return(Result);
+}
+
+inline v3
+operator+(v3 A, v3 B)
+{
+	v3 Result;
+
+	Result.x = A.x + B.x;
+	Result.y = A.y + B.y;
+	Result.z = A.z + B.z;
+
+	return(Result);
+}
+
+inline v3 &
+operator+=(v3 &A, v3 B)
+{
+	A = A + B;
+
 	return(A);
 }
 
-inline vec4 __vectorcall
-Max(vec4 A, vec4 B)
+inline v3
+operator-(v3 A, v3 B)
 {
-	A.m = _mm_max_ps(A.m, B.m);
+	v3 Result;
+
+	Result.x = A.x - B.x;
+	Result.y = A.y - B.y;
+	Result.z = A.z - B.z;
+
+	return(Result);
+}
+
+inline v3 &
+operator-=(v3 &A, v3 B)
+{
+	A = A - B;
+
 	return(A);
 }
 
-inline vec4 _vectorcall
-operator- (vec4 A)
+inline v3
+Hadamard(v3 A, v3 B)
 {
-	A = vec4(_mm_setzero_ps()) - A;
+	v3 Result;
+
+	Result.x = A.x * B.x;
+	Result.y = A.y * B.y;
+	Result.z = A.z * B.z;
+
+	return(Result);
+}
+
+inline real32
+Dot(v3 A, v3 B)
+{
+	real32 Result = A.x*B.x + A.y*B.y + A.z*B.z;
+
+	return(Result);
+}
+
+inline real32
+LengthSq(v3 A)
+{
+	real32 Result = Dot(A, A);
+
+	return(Result);
+}
+
+inline real32
+Length(v3 A)
+{
+	real32 Result = sqrtf(LengthSq(A));
+
+	return(Result);
+}
+
+inline v3
+Cross(v3 A, v3 B)
+{
+	v3 Result;
+
+	Result.x = A.y*B.z - A.z*B.y;
+	Result.y = A.z*B.x - A.x*B.z;
+	Result.z = A.x*B.y - A.y*B.x;
+
+	return(Result);
+}
+
+inline v3
+Normalize(v3 A)
+{
+	v3 Result;
+
+	real32 InvLen = 1.0f / Length(A);
+	Result = InvLen * A;
+
+	return(Result);
+}
+
+inline void
+v3::Normalize()
+{
+	real32 InvLen = 1.0f / Length(*this);
+
+	*this *= InvLen;
+}
+
+//
+// NOTE(georgy): v4
+//
+
+union v4
+{
+	struct
+	{
+		real32 x, y, z, w;
+	};
+	struct
+	{
+		real32 r, g, b, a;
+	};
+	struct
+	{
+		v3 xyz;
+		real32 Ignored_0;
+	};
+	struct
+	{
+		v3 rgb;
+		real32 Ignored_1;
+	};
+	struct
+	{
+		v2 xy;
+		real32 Ignored_2;
+		real32 Ignored_3;
+	};
+	struct
+	{
+		real32 Ignored_4;
+		v2 yz;
+		real32 Ignored_5;
+	};
+	struct
+	{
+		real32 Ignored_6;
+		real32 Ignored_7;
+		v2 zw;
+	};
+	real32 E[4];
+
+	void Normalize();
+};
+
+inline v4
+V4(real32 X, real32 Y, real32 Z, real32 W)
+{
+	v4 Result;
+
+	Result.x = X;
+	Result.y = Y;
+	Result.z = Z;
+	Result.w = W;
+
+	return(Result);
+}
+
+inline v4
+V4(v3 A, real32 W)
+{
+	v4 Result;
+
+	Result.x = A.x;
+	Result.y = A.y;
+	Result.z = A.z;
+	Result.w = A.w;
+
+	return(Result);
+}
+
+inline v4
+operator*(real32 A, v4 B)
+{
+	v4 Result;
+
+	Result.x = A * B.x;
+	Result.y = A * B.y;
+	Result.z = A * B.z;
+	Result.w = A * B.w;
+
+	return(Result);
+}
+
+inline v4
+operator*(v4 B, real32 A)
+{
+	v4 Result = A * B;
+
+	return(Result);
+}
+
+inline v4 &
+operator*=(v4 &A, real32 B)
+{
+	A = B * A;
+
 	return(A);
 }
 
-inline vec4 __vectorcall
-Clamp(vec4 A, vec4 MinClamp, vec4 MaxClamp)
+inline v4
+operator-(v4 A)
 {
-	return (Min(MaxClamp, Max(MinClamp, A)));
+	v4 Result;
+
+	Result.x = -A.x;
+	Result.y = -A.y;
+	Result.z = -A.z;
+	Result.w = -A.w;
+
+	return(Result);
 }
 
-inline real32 __vectorcall
-Sum(vec4 A)
+inline v4
+operator+(v4 A, v4 B)
 {
-	return (A.x() + A.y() + A.z() + A.w());
+	v4 Result;
+
+	Result.x = A.x + B.x;
+	Result.y = A.y + B.y;
+	Result.z = A.z + B.z;
+	Result.w = A.w + B.w;
+
+	return(Result);
 }
 
-inline real32 __vectorcall
-Dot(vec4 A, vec4 B)
+inline v4 &
+operator+=(v4 &A, v4 B)
 {
-	real32 Result = Sum(Hadamard(A, B));
+	A = A + B;
+
+	return(A);
 }
 
-inline real32 __vectorcall
-LengthSq(vec4 A)
+inline v4
+operator-(v4 A, v4 B)
 {
-	return (Dot(A, A));
+	v4 Result;
+
+	Result.x = A.x - B.x;
+	Result.y = A.y - B.y;
+	Result.z = A.z - B.z;
+	Result.w = A.w - B.w;
+
+	return(Result);
 }
 
-inline real32 __vectorcall
-Length(vec4 A)
+inline v4 &
+operator-=(v4 &A, v4 B)
 {
-	return (sqrtf(Dot(A, A)));
+	A = A - B;
+
+	return(A);
 }
 
-inline vec4 __vectorcall
-Normalize(vec4 A)
+inline v4
+Hadamard(v4 A, v4 B)
 {
-	return (A * (1.0f / Length(A)));
+	v4 Result;
+
+	Result.x = A.x * B.x;
+	Result.y = A.y * B.y;
+	Result.z = A.z * B.z;
+	Result.w = A.w * B.w;
+
+	return(Result);
 }
 
-inline vec4 __vectorcall
-Lerp(vec4 A, vec4 B, float t)
+inline real32
+Dot(v4 A, v4 B)
 {
-	return (A + (B - A)*t);
+	real32 Result = A.x*B.x + A.y*B.y + A.z*B.z + A.w*B.w;
+
+	return(Result);
+}
+
+inline real32
+LengthSq(v4 A)
+{
+	real32 Result = Dot(A, A);
+
+	return(Result);
+}
+
+inline real32
+Length(v4 A)
+{
+	real32 Result = sqrtf(LengthSq(A));
+
+	return(Result);
+}
+
+inline v4
+Normalize(v4 A)
+{
+	v4 Result;
+
+	real32 InvLen = 1.0f / Length(A);
+	Result = InvLen * A;
+
+	return(Result);
+}
+
+inline void
+v4::Normalize()
+{
+	real32 InvLen = 1.0f / Length(*this);
+
+	*this *= InvLen;
 }
 
 //
@@ -364,111 +598,155 @@ Lerp(vec4 A, vec4 B, float t)
 
 struct mat4
 {
-	inline mat4() {}
-
-	vec4 FirstColumn;
-	vec4 SecondColumn;
-	vec4 ThirdColumn;
-	vec4 FourthColumn;
+	union
+	{
+		real32 Elements[16];
+		struct
+		{
+			real32 a11, a21, a31, a41;
+			real32 a12, a22, a32, a42;
+			real32 a13, a23, a33, a43;
+			real32 a14, a24, a34, a44;
+		};
+	};
 };
 
+internal mat4 
+operator*(mat4 A, mat4 B)
+{
+	mat4 Result;
+
+	for (uint32_t I = 0; I < 4; I++)
+	{
+		for (uint32_t J = 0; J < 4; J++)
+		{
+			real32 Sum = 0.0f;
+			for (uint32_t E = 0; E < 4; E++)
+			{
+				Sum += A.Elements[I + E*4] * B.Elements[J*4 + E];
+			}
+			Result.Elements[I + J*4] = Sum;
+		}
+	}
+
+	return(Result);
+}
+
+inline mat4 
+Identity(float Diagonal = 1.0f)
+{
+	mat4 Result = {};
+
+	Result.a11 = Diagonal;
+	Result.a22 = Diagonal;
+	Result.a33 = Diagonal;
+	Result.a44 = Diagonal;
+
+	return(Result);
+}
+
+inline mat4
+Translate(v3 Translation)
+{
+	mat4 Result = Identity(1.0f);
+
+	Result.a41 = Translation.x;
+	Result.a42 = Translation.y;
+	Result.a43 = Translation.z;
+
+	return(Result);
+}
+
+inline mat4
+Scale(real32 Scale)
+{
+	mat4 Result = {};
+
+	Result.a11 = Scale;
+	Result.a22 = Scale;
+	Result.a33 = Scale;
+	Result.a44 = 1.0f;
+
+	return(Result);
+}
+
+inline mat4
+Scale(v3 Scale)
+{
+	mat4 Result = {};
+
+	Result.a11 = Scale.x;
+	Result.a22 = Scale.y;
+	Result.a33 = Scale.z;
+	Result.a44 = 1.0f;
+
+	return(Result);
+}
+
 internal mat4
-operator* (mat4 A, mat4 B)
+Rotate(real32 Angle, v3 Axis)
 {
 	mat4 Result;
 
-	Result.FirstColumn = vec4(_mm_setzero_ps());
-	Result.FirstColumn += Hadamard(A.FirstColumn, SHUFFLE4(B.FirstColumn, 0, 0, 0, 0));
-	Result.FirstColumn += Hadamard(A.SecondColumn, SHUFFLE4(B.FirstColumn, 1, 1, 1, 1));
-	Result.FirstColumn += Hadamard(A.ThirdColumn, SHUFFLE4(B.FirstColumn, 2, 2, 2, 2));
-	Result.FirstColumn += Hadamard(A.FourthColumn, SHUFFLE4(B.FirstColumn, 3, 3, 3, 3));
+	real32 Rad = DEG2RAD(Angle);
+	real32 Cos = cosf(Rad);
+	real32 Sin = sinf(Rad);
+	Axis.Normalize();
 
-	Result.SecondColumn = vec4(_mm_setzero_ps());
-	Result.SecondColumn += Hadamard(A.FirstColumn, SHUFFLE4(B.SecondColumn, 0, 0, 0, 0));
-	Result.SecondColumn += Hadamard(A.SecondColumn, SHUFFLE4(B.SecondColumn, 1, 1, 1, 1));
-	Result.SecondColumn += Hadamard(A.ThirdColumn, SHUFFLE4(B.SecondColumn, 2, 2, 2, 2));
-	Result.SecondColumn += Hadamard(A.FourthColumn, SHUFFLE4(B.SecondColumn, 3, 3, 3, 3));
+	float OneMinusCosine = 1.0f - Cos;
 
-	Result.ThirdColumn = vec4(_mm_setzero_ps());
-	Result.ThirdColumn += Hadamard(A.FirstColumn, SHUFFLE4(B.ThirdColumn, 0, 0, 0, 0));
-	Result.ThirdColumn += Hadamard(A.SecondColumn, SHUFFLE4(B.ThirdColumn, 1, 1, 1, 1));
-	Result.ThirdColumn += Hadamard(A.ThirdColumn, SHUFFLE4(B.ThirdColumn, 2, 2, 2, 2));
-	Result.ThirdColumn += Hadamard(A.FourthColumn, SHUFFLE4(B.ThirdColumn, 3, 3, 3, 3));
+	Result.a11 = Axis.x*Axis.x*OneMinusCosine + Cos;
+	Result.a21 = Axis.x*Axis.y*OneMinusCosine + Axis.z*Sin;
+	Result.a31 = Axis.x*Axis.z*OneMinusCosine - Axis.y*Sin;
+	Result.a41 = 0.0f;
 
-	Result.FourthColumn = vec4(_mm_setzero_ps());
-	Result.FourthColumn += Hadamard(A.FirstColumn, SHUFFLE4(B.FourthColumn, 0, 0, 0, 0));
-	Result.FourthColumn += Hadamard(A.SecondColumn, SHUFFLE4(B.FourthColumn, 1, 1, 1, 1));
-	Result.FourthColumn += Hadamard(A.ThirdColumn, SHUFFLE4(B.FourthColumn, 2, 2, 2, 2));
-	Result.FourthColumn += Hadamard(A.FourthColumn, SHUFFLE4(B.FourthColumn, 3, 3, 3, 3));
+	Result.a12 = Axis.x*Axis.y*OneMinusCosine - Axis.z*Sin;
+	Result.a22 = Axis.y*Axis.y*OneMinusCosine + Cos;
+	Result.a32 = Axis.y*Axis.z*OneMinusCosine + Axis.x*Sin;
+	Result.a42 = 0.0f;
+
+	Result.a13 = Axis.x*Axis.z*OneMinusCosine + Axis.y*Sin;
+	Result.a23 = Axis.y*Axis.z*OneMinusCosine - Axis.x*Sin;
+	Result.a33 = Axis.z*Axis.z*OneMinusCosine + Cos;
+	Result.a43 = 0.0f;
+
+	Result.a14 = 0.0f;
+	Result.a24 = 0.0f;
+	Result.a34 = 0.0f;
+	Result.a44 = 1.0f;
 
 	return(Result);
 }
 
-inline mat4 __vectorcall
-Identity(real32 Diagonal = 1.0f)
+internal mat4
+LookAt(v3 From, v3 Target, v3 UpAxis = V3(0.0f, 1.0f, 0.0f))
 {
-	mat4 Result;
-
-	Result.FirstColumn = vec4(Diagonal, 0.0f, 0.0f, 0.0f);
-	Result.SecondColumn = vec4(0.0f, Diagonal, 0.0f, 0.0f);
-	Result.ThirdColumn = vec4(0.0f, 0.0f, Diagonal, 0.0f);
-	Result.FourthColumn = vec4(0.0f, 0.0f, 0.0f, Diagonal);
-
-	return(Result);
-}
-
-inline mat4 __vectorcall
-Translate(vec3 Translation)
-{
-	mat4 Result;
-
-	Result.FirstColumn = vec4(1.0f, 0.0f, 0.0f, Translation.x());
-	Result.SecondColumn = vec4(0.0f, 1.0f, 0.0f, Translation.y());
-	Result.ThirdColumn = vec4(0.0f, 0.0f, 1.0f, Translation.z());
-	Result.FourthColumn = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-
-	return(Result);
-}
-
-inline mat4 __vectorcall
-Scale(real32 ScaleFactor)
-{
-	mat4 Result;
-
-	Result.FirstColumn = vec4(ScaleFactor, 0.0f, 0.0f, 0.0f);
-	Result.SecondColumn = vec4(0.0f, ScaleFactor, 0.0f, 0.0f);
-	Result.ThirdColumn = vec4(0.0f, 0.0f, ScaleFactor, 0.0f);
-	Result.FourthColumn = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-
-	return(Result);
-}
-
-inline mat4 __vectorcall
-Scale(vec3 ScaleFactor)
-{
-	mat4 Result;
-
-	Result.FirstColumn = vec4(ScaleFactor.x(), 0.0f, 0.0f, 0.0f);
-	Result.SecondColumn = vec4(0.0f, ScaleFactor.y(), 0.0f, 0.0f);
-	Result.ThirdColumn = vec4(0.0f, 0.0f, ScaleFactor.z(), 0.0f);
-	Result.FourthColumn = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-
-	return(Result);
-}
-
-internal mat4 __vectorcall
-LookAt(vec3 From, vec3 Target, vec3 UpAxis = vec3(0.0f, 1.0f, 0.0f))
-{
-	vec3 Forward = Normalize(Target - From);
-	vec3 Right = Normalize(Cross(UpAxis, Forward));
-	vec3 Up = Cross(Forward, Right);
+	v3 Forward = Normalize(Target - From);
+	v3 Right = Normalize(Cross(UpAxis, Forward));
+	v3 Up = Normalize(Cross(Forward, Right));
 
 	mat4 Result;
 
-	Result.FirstColumn = vec4(Right, -Dot(Right, From));
-	Result.SecondColumn = vec4(Up, -Dot(Up, From));
-	Result.ThirdColumn = vec4(Forward, -Dot(Forward, From));
-	Result.FourthColumn = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	Result.a11 = Right.x;
+	Result.a21 = Right.y;
+	Result.a31 = Right.z;
+
+	Result.a12 = Up.x;
+	Result.a22 = Up.y;
+	Result.a32 = Up.z;
+
+	Result.a13 = Forward.x;
+	Result.a23 = Forward.y;
+	Result.a33 = Forward.z;
+
+	Result.a41 = -Dot(From, Right);
+	Result.a42 = -Dot(From, Up);
+	Result.a43 = -Dot(From, Forward);
+	
+	Result.a14 = 0.0f;
+	Result.a24 = 0.0f;
+	Result.a34 = 0.0f;
+	Result.a44 = 1.0f;
 
 	return(Result);
 }
@@ -484,125 +762,25 @@ Perspective(real32 FoV, real32 AspectRatio, real32 Near, real32 Far)
 
 	real32 FRange = Far / (Far - Near);
 
-	Result.FirstColumn = vec4(ZoomX, 0.0f, 0.0f, 0.0f);
-	Result.SecondColumn = vec4(0.0f, ZoomY, 0.0f, 0.0f);
-	Result.ThirdColumn = vec4(0.0f, 0.0f, FRange, -FRange*Near);
-	Result.FourthColumn = vec4(0.0f, 0.0f, 1.0f, 0.0f);
+	Result.a11 = ZoomX;
+	Result.a21 = 0.0f;
+	Result.a31 = 0.0f;
+	Result.a41 = 0.0f;
+
+	Result.a12 = 0.0f;
+	Result.a22 = ZoomY;
+	Result.a32 = 0.0f;
+	Result.a42 = 0.0f;
+
+	Result.a13 = 0.0f;
+	Result.a23 = 0.0f;
+	Result.a33 = FRange;
+	Result.a43 = -FRange*Near;
+	
+	Result.a14 = 0.0f;
+	Result.a24 = 0.0f;
+	Result.a34 = 1.0f;
+	Result.a44 = 0.0f;
 
 	return(Result);
-}
-
-//
-// NOTE(georgy): vec2
-//
-
-union vec2 
-{
-	vec2() {}
-	explicit vec2(real32 X, real32 Y) { x = X; y = Y; }
-
-	struct
-	{
-		real32 x, y;
-	};
-	real32 E[2];
-};
-
-inline vec2 
-operator+ (vec2 A, vec2 B)
-{
-	A.x = A.x + B.x;
-	A.y = A.y + B.y;
-	return(A);
-}
-
-inline vec2 
-operator- (vec2 A, vec2 B)
-{
-	A.x = A.x - B.x;
-	A.y = A.y - B.y;
-	return(A);
-}
-
-inline vec2
-Hadamard(vec2 A, vec2 B)
-{
-	A.x = A.x * B.x;
-	A.y = A.y * B.y;
-	return(A);
-}
-
-inline vec2 
-operator* (vec2 A, real32 B)
-{
-	A.x = A.x * B;
-	A.y = A.y * B;
-	return(A);
-}
-
-inline vec2 
-operator* (real32 B, vec2 A)
-{
-	A = A * B;
-	return(A);
-}
-
-inline vec2 &
-operator+= (vec2 &A, vec2 B)
-{
-	A = A + B;
-	return(A);
-}
-
-inline vec2 & 
-operator-= (vec2 &A, vec2 B)
-{
-	A = A - B;
-	return(A);
-}
-
-inline vec2 & 
-operator*= (vec2 &A, real32 B)
-{
-	A = A * B;
-	return(A);
-}
-
-inline vec2 
-operator- (vec2 A)
-{
-	A.x = -A.x;
-	A.y = -A.y;
-	return(A);
-}
-
-inline real32 
-Dot(vec2 A, vec2 B)
-{
-	real32 Result = A.x*B.x + A.y*B.y;
-	return(Result);
-}
-
-inline real32 
-LengthSq(vec2 A)
-{
-	return (Dot(A, A));
-}
-
-inline real32 
-Length(vec2 A)
-{
-	return (sqrtf(Dot(A, A)));
-}
-
-inline vec2 
-Normalize(vec2 A)
-{
-	return (A * (1.0f / Length(A)));
-}
-
-inline vec2 
-Lerp(vec2 A, vec2 B, float t)
-{
-	return (A + (B - A)*t);
 }

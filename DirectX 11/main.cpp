@@ -1,10 +1,8 @@
 #include <Windows.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
-#include <DirectXMath.h>
+#include <dinput.h>
 #include <DirectXColors.h>
-
-#include <vector>
 
 #include "math.hpp"
 
@@ -12,6 +10,8 @@
 #include <DDSTextureLoader.h>
 
 #pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dinput8.lib")
+#pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -20,6 +20,7 @@ using namespace DirectX;
 #include <stdio.h>
 
 #define Assert(Expression) if((!Expression)) { *(int *)0 = 0; }
+#define ArrayCount(Array) (sizeof(Array)/sizeof((Array)[0]))
 
 struct d3d_app
 {
@@ -30,13 +31,11 @@ struct d3d_app
 	ID3D11RenderTargetView *RenderTargetView;
 	ID3D11DepthStencilView *DepthStencilView;
 
-	UINT MSAA4XQuality;
-	bool Resizing = false;
-
 	UINT WindowWidth, WindowHeight;
 };
 
 global_variable bool GlobalRunning;
+global_variable bool GlobalWindowIsFocused;
 global_variable d3d_app GlobalDirect3D;
 global_variable LARGE_INTEGER GlobalPerfCounterFrequency;
 
@@ -53,59 +52,6 @@ GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
 {
 	real32 Result = (End.QuadPart - Start.QuadPart) / (real32)GlobalPerfCounterFrequency.QuadPart;
 	return(Result);
-}
-
-global_variable void
-Resize()
-{
-	if (GlobalDirect3D.DepthStencilView && GlobalDirect3D.DepthStencilBuffer && GlobalDirect3D.RenderTargetView)
-	{
-		GlobalDirect3D.RenderTargetView->Release();
-		GlobalDirect3D.DepthStencilView->Release();
-		GlobalDirect3D.DepthStencilBuffer->Release();
-
-		GlobalDirect3D.SwapChain->ResizeBuffers(1, GlobalDirect3D.WindowWidth, GlobalDirect3D.WindowHeight, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
-		ID3D11Texture2D *BackBuffer;
-		GlobalDirect3D.SwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void **)&BackBuffer);
-		GlobalDirect3D.Device->CreateRenderTargetView(BackBuffer, 0, &GlobalDirect3D.RenderTargetView);
-		BackBuffer->Release();
-
-		D3D11_TEXTURE2D_DESC DepthStencilDescription;
-		DepthStencilDescription.Width = GlobalDirect3D.WindowWidth;
-		DepthStencilDescription.Height = GlobalDirect3D.WindowHeight;
-		DepthStencilDescription.MipLevels = 1;
-		DepthStencilDescription.ArraySize = 1;
-		DepthStencilDescription.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-		if (GlobalDirect3D.MSAA4XQuality)
-		{
-			DepthStencilDescription.SampleDesc.Count = 4;
-			DepthStencilDescription.SampleDesc.Quality = GlobalDirect3D.MSAA4XQuality - 1;
-		}
-		else
-		{
-			DepthStencilDescription.SampleDesc.Count = 1;
-			DepthStencilDescription.SampleDesc.Quality = 0;
-		}
-		DepthStencilDescription.Usage = D3D11_USAGE_DEFAULT;
-		DepthStencilDescription.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-		DepthStencilDescription.CPUAccessFlags = 0;
-		DepthStencilDescription.MiscFlags = 0;
-
-		GlobalDirect3D.Device->CreateTexture2D(&DepthStencilDescription, 0, &GlobalDirect3D.DepthStencilBuffer);
-		GlobalDirect3D.Device->CreateDepthStencilView(GlobalDirect3D.DepthStencilBuffer, 0, &GlobalDirect3D.DepthStencilView);
-
-		GlobalDirect3D.ImmediateContext->OMSetRenderTargets(1, &GlobalDirect3D.RenderTargetView, GlobalDirect3D.DepthStencilView);
-
-		D3D11_VIEWPORT ViewPort;
-		ViewPort.TopLeftX = 0.0f;
-		ViewPort.TopLeftY = 0.0f;
-		ViewPort.Width = (real32)GlobalDirect3D.WindowWidth;
-		ViewPort.Height = (real32)GlobalDirect3D.WindowHeight;
-		ViewPort.MinDepth = 0.0f;
-		ViewPort.MaxDepth = 1.0f;
-
-		GlobalDirect3D.ImmediateContext->RSSetViewports(1, &ViewPort);
-	}
 }
 
 LRESULT CALLBACK 
@@ -125,25 +71,24 @@ MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 			GlobalRunning = false;
 		} break;
 
+		case WM_ACTIVATEAPP:
+        {
+            if(WParam)
+            {
+                ShowCursor(FALSE);
+                GlobalWindowIsFocused = true;
+            }
+            else
+            {
+                ShowCursor(TRUE);
+                GlobalWindowIsFocused = false;
+            }
+        } break;
+
 		case WM_SIZE:
 		{
 			GlobalDirect3D.WindowWidth = LOWORD(LParam);
 			GlobalDirect3D.WindowHeight = HIWORD(LParam);
-
-			if (!GlobalDirect3D.Resizing)
-			{
-				Resize();
-			}
-		} break;
-
-		case WM_ENTERSIZEMOVE:
-		{
-			GlobalDirect3D.Resizing = true;
-		} break;
-		case WM_EXITSIZEMOVE:
-		{
-			GlobalDirect3D.Resizing = false;
-			Resize();
 		} break;
 
 		case WM_GETMINMAXINFO:
@@ -161,8 +106,42 @@ MainWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 	return(Result);
 }
 
-global_variable void
-ProcessPendingMessages()
+struct game_button_state
+{
+	uint32_t HalfTransitionCount;
+	bool EndedDown;
+};
+
+struct game_input
+{
+	int32_t MouseX, MouseY;
+	int32_t DeltaMouseX, DeltaMouseY;
+
+	union
+	{
+		game_button_state Buttons[4];
+		struct
+		{
+			game_button_state MoveForward;
+			game_button_state MoveBack;
+			game_button_state MoveLeft;
+			game_button_state MoveRight;
+		};
+	};
+};
+
+internal void
+ProcessKeyboardMessage(game_button_state *Button, bool IsDown)
+{
+	if(Button->EndedDown != IsDown)
+	{
+		Button->EndedDown = IsDown;
+		Button->HalfTransitionCount++;
+	}
+}
+
+internal void
+ProcessPendingMessages(game_input *Input)
 {
 	MSG Message;
 	while (PeekMessage(&Message, 0, 0, 0, PM_REMOVE))
@@ -174,6 +153,64 @@ ProcessPendingMessages()
 				GlobalRunning = false;
 			} break;
 
+			case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_KEYDOWN:
+            case WM_KEYUP:
+            {
+                uint32_t VKCode = (uint32_t) Message.wParam;
+
+                bool WasDown = ((Message.lParam & (1 << 30)) != 0);
+                bool IsDown = ((Message.lParam & (1 << 31)) == 0);
+                
+                if (WasDown != IsDown)
+                { 
+                    if (VKCode == 'W')
+                    {
+                        ProcessKeyboardMessage(&Input->MoveForward, IsDown);
+                    }
+                    else if (VKCode == 'A')
+                    {
+                        ProcessKeyboardMessage(&Input->MoveLeft, IsDown);
+                    }
+                    else if (VKCode == 'S')
+                    {
+                        ProcessKeyboardMessage(&Input->MoveBack, IsDown);
+                    }
+                    else if (VKCode == 'D')
+                    {
+                        ProcessKeyboardMessage(&Input->MoveRight, IsDown);
+                    }
+				}
+			} break;
+
+			case WM_INPUT:
+			{
+				RAWINPUT RawInput;
+				UINT RawInputSize = sizeof(RawInput);
+				GetRawInputData((HRAWINPUT)Message.lParam, RID_INPUT, &RawInput, &RawInputSize, sizeof(RAWINPUTHEADER));
+
+				if(RawInput.header.dwType == RIM_TYPEMOUSE)
+				{
+					if(RawInput.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)
+					{
+						Input->DeltaMouseX = RawInput.data.mouse.lLastX - Input->MouseX;
+						Input->DeltaMouseY = RawInput.data.mouse.lLastY - Input->MouseY;
+
+						Input->MouseX = RawInput.data.mouse.lLastX;
+						Input->MouseY = RawInput.data.mouse.lLastY;
+					}
+					else if(RawInput.data.mouse.usFlags == MOUSE_MOVE_RELATIVE)
+					{
+						Input->DeltaMouseX = RawInput.data.mouse.lLastX;
+						Input->DeltaMouseY = RawInput.data.mouse.lLastY;
+
+						Input->MouseX += Input->DeltaMouseX;
+						Input->MouseY += Input->DeltaMouseY;
+					}
+				}
+			} break;
+
 			default:
 			{
 				TranslateMessage(&Message);
@@ -183,131 +220,21 @@ ProcessPendingMessages()
 	}
 }
 
-struct vertex
-{
-	vec3 Pos;
-	vec3 Normal;
-	vec2 TexCoords;
-};
-
 struct matrix_buffer
 {
-	mat4 Model;
-	mat4 View;
 	mat4 Projection;
+	mat4 View;
+	mat4 Model;
 };
 
-struct dir_light
+struct vertex
 {
-	vec3 Diffuse;
-	vec3 Specular;
-	vec3 Dir;
+	v3 Pos;
+	v3 Normal;
+	v2 TexCoords;
+	v3 Tangent;
+	v3 Bitangent;
 };
-
-struct point_light
-{
-	vec3 Diffuse;
-	vec3 Specular;
-	vec3 PosW;
-};
-
-struct spot_light
-{
-	vec3 Diffuse;
-	vec3 Specular;
-	vec3 PosW;
-	vec3 Dir;
-};
-
-struct light_info
-{
-	dir_light DirLight[2];
-	point_light PointLight;
-	spot_light SpotLight;
-	vec3 ViewPosW;
-};
-
-struct grid
-{
-	std::vector<vertex> Vertices;
-	std::vector<UINT> Indices;
-
-	uint32_t Width, Depth;
-	uint32_t VerticesAlongX, VerticesAlongZ;
-
-	ID3D11Buffer *VB, *IB;
-};
-
-inline real32
-GetHeight(real32 X, real32 Z)
-{
-	return (0.3f*(Z*sinf(0.1f*X) + X*cosf(0.1f*Z)));
-}
-
-global_variable void
-ConstructGrid(grid *Grid, uint32_t VerticesAlongX, uint32_t VerticesAlongZ, uint32_t Width, uint32_t Depth)
-{
-	Grid->Width = Width;
-	Grid->Depth = Depth;
-	Grid->VerticesAlongX = VerticesAlongX;
-	Grid->VerticesAlongZ = VerticesAlongZ;
-
-	Grid->Vertices.resize(VerticesAlongX*VerticesAlongZ);
-	Grid->Indices.resize(3*2*(VerticesAlongX-1)*(VerticesAlongZ-1));
-
-	real32 StepX = (real32)Width / (VerticesAlongX - 1);
-	real32 StepZ = (real32)Depth / (VerticesAlongZ - 1);
-
-	for (uint32_t I = 0; I < VerticesAlongZ; I++)
-	{
-		real32 Z = 0.5f*Depth - I*StepZ;
-		for (uint32_t J = 0; J < VerticesAlongX; J++)
-		{
-			real32 X = -0.5f*Width + J*StepX;
-			real32 Y = GetHeight(X, Z);
-			vertex Vertex;
-			Vertex.Pos = vec3(X, Y, Z);
-
-			Grid->Vertices[I*VerticesAlongX + J] = Vertex;
-		}
-	}
-
-	UINT K = 0;
-	for (UINT I = 0; I < VerticesAlongZ - 1; I++)
-	{
-		for (UINT J = 0; J < VerticesAlongX - 1; J++)
-		{
-			Grid->Indices[K] = I*VerticesAlongX + J;
-			Grid->Indices[K + 1] = I*VerticesAlongX + J + 1;
-			Grid->Indices[K + 2] = (I + 1)*VerticesAlongX + J;
-			Grid->Indices[K + 3] = I*VerticesAlongX + J + 1;
-			Grid->Indices[K + 4] = (I + 1)*VerticesAlongX + J + 1;
-			Grid->Indices[K + 5] = (I + 1)*VerticesAlongX + J;
-			
-			K += 6;
-		}
-	}
-
-	D3D11_BUFFER_DESC VBDescription;
-	VBDescription.ByteWidth = Grid->Vertices.size()*sizeof(vertex);
-	VBDescription.Usage = D3D11_USAGE_IMMUTABLE;
-	VBDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-	VBDescription.CPUAccessFlags = 0;
-	VBDescription.MiscFlags = 0;
-	D3D11_SUBRESOURCE_DATA VBInitData;
-	VBInitData.pSysMem = &Grid->Vertices[0];
-	GlobalDirect3D.Device->CreateBuffer(&VBDescription, &VBInitData, &Grid->VB);
-
-	D3D11_BUFFER_DESC IBDescription;
-	IBDescription.ByteWidth = Grid->Indices.size() * sizeof(UINT);
-	IBDescription.Usage = D3D11_USAGE_IMMUTABLE;
-	IBDescription.BindFlags = D3D11_BIND_INDEX_BUFFER;
-	IBDescription.CPUAccessFlags = 0;
-	IBDescription.MiscFlags = 0;
-	D3D11_SUBRESOURCE_DATA IBInitData;
-	IBInitData.pSysMem = &Grid->Indices[0];
-	GlobalDirect3D.Device->CreateBuffer(&IBDescription, &IBInitData, &Grid->IB);
-}
 
 int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowCode)
@@ -322,11 +249,11 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 	WindowClass.style = CS_VREDRAW | CS_HREDRAW;
 	WindowClass.lpfnWndProc = MainWindowCallback;
 	WindowClass.hInstance = Instance;
-	WindowClass.lpszClassName = "DirectX WindowClass";
+	WindowClass.lpszClassName = "D11 WindowClass";
 
 	if(RegisterClass(&WindowClass))
 	{
-		HWND Window = CreateWindowEx(0, WindowClass.lpszClassName, "DirectX Window",
+		HWND Window = CreateWindowEx(0, WindowClass.lpszClassName, "D11",
 									 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
 									 CW_USEDEFAULT, CW_USEDEFAULT, Direct3D->WindowWidth, Direct3D->WindowHeight,
 									 0, 0, Instance, 0);
@@ -340,8 +267,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 			D3D_FEATURE_LEVEL FeatureLevel;
 			HRESULT Hr = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 0,
-				CreateDeviceFlags, 0, 0, D3D11_SDK_VERSION,
-				&Direct3D->Device, &FeatureLevel, &Direct3D->ImmediateContext);
+										   CreateDeviceFlags, 0, 0, D3D11_SDK_VERSION,
+										   &Direct3D->Device, &FeatureLevel, &Direct3D->ImmediateContext);
 
 			if (FAILED(Hr))
 			{
@@ -353,9 +280,6 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				MessageBoxW(0, L"Durect3D Feature Level 11 is unsupported", 0, 0);
 			}
 
-			Direct3D->Device->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM, 4, &Direct3D->MSAA4XQuality);
-			Assert(Direct3D->MSAA4XQuality);
-
 			DXGI_SWAP_CHAIN_DESC SwapChainDescription;
 			SwapChainDescription.BufferDesc.Width = Direct3D->WindowWidth;
 			SwapChainDescription.BufferDesc.Height = Direct3D->WindowHeight;
@@ -364,16 +288,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			SwapChainDescription.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 			SwapChainDescription.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
 			SwapChainDescription.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-			if (Direct3D->MSAA4XQuality)
-			{
-				SwapChainDescription.SampleDesc.Count = 4;
-				SwapChainDescription.SampleDesc.Quality = Direct3D->MSAA4XQuality - 1;
-			}
-			else
-			{
-				SwapChainDescription.SampleDesc.Count = 1;
-				SwapChainDescription.SampleDesc.Quality = 0;
-			}
+			SwapChainDescription.SampleDesc.Count = 1;
+			SwapChainDescription.SampleDesc.Quality = 0;
 			SwapChainDescription.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 			SwapChainDescription.BufferCount = 1;
 			SwapChainDescription.OutputWindow = Window;
@@ -405,16 +321,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			DepthStencilDescription.MipLevels = 1;
 			DepthStencilDescription.ArraySize = 1;
 			DepthStencilDescription.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-			if (Direct3D->MSAA4XQuality)
-			{
-				DepthStencilDescription.SampleDesc.Count = 4;
-				DepthStencilDescription.SampleDesc.Quality = Direct3D->MSAA4XQuality - 1;
-			}
-			else
-			{
-				DepthStencilDescription.SampleDesc.Count = 1;
-				DepthStencilDescription.SampleDesc.Quality = 0;
-			}
+			DepthStencilDescription.SampleDesc.Count = 1;
+			DepthStencilDescription.SampleDesc.Quality = 0;
 			DepthStencilDescription.Usage = D3D11_USAGE_DEFAULT;
 			DepthStencilDescription.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 			DepthStencilDescription.CPUAccessFlags = 0;
@@ -434,18 +342,16 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			ViewPort.MaxDepth = 1.0f;
 
 			Direct3D->ImmediateContext->RSSetViewports(1, &ViewPort);
-#if 1
-			UINT ShaderFlags = 0;
-#if DEBUG | _DEBUG
-			ShaderFlags |= D3D10_SHADER_DEBUG;
-			ShaderFlags |= D3D10_SHADER_SKIP_OPTIMIZATION;
-#endif
+
+
+			// NOTE(georgy): Compile and create default shaders
 			ID3D10Blob *VSBuffer;
 			ID3D10Blob *PSBuffer;
 			ID3D10Blob *CompilationMessages = 0;
-			Hr = D3DCompileFromFile(L"shaders/ColorV.hlsl", 0, 0, "VS", "vs_5_0", ShaderFlags, 0,
-									&VSBuffer, &CompilationMessages);
-			if (CompilationMessages)
+
+			HRESULT ShaderCompileResult = D3DCompileFromFile(L"shaders/DefaultVS.hlsl", 0, 0, "VS", "vs_5_0", D3D10_SHADER_DEBUG | D3D10_SHADER_SKIP_OPTIMIZATION,
+															 0, &VSBuffer, &CompilationMessages);
+			if(CompilationMessages)
 			{
 				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
 				CompilationMessages->Release();
@@ -455,9 +361,9 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				MessageBox(0, "D3D11CompileFromFile failed", 0, 0);
 			}
 
-			Hr = D3DCompileFromFile(L"shaders/ColorP.hlsl", 0, 0, "PS", "ps_5_0", ShaderFlags, 0,
-									&PSBuffer, &CompilationMessages);
-			if (CompilationMessages)
+			ShaderCompileResult = D3DCompileFromFile(L"shaders/DefaultPS.hlsl", 0, 0, "PS", "ps_5_0", D3D10_SHADER_DEBUG | D3D10_SHADER_SKIP_OPTIMIZATION,
+															 0, &PSBuffer, &CompilationMessages);
+			if(CompilationMessages)
 			{
 				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
 				CompilationMessages->Release();
@@ -472,655 +378,318 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			Direct3D->Device->CreateVertexShader(VSBuffer->GetBufferPointer(), VSBuffer->GetBufferSize(), 0, &VS);
 			Direct3D->Device->CreatePixelShader(PSBuffer->GetBufferPointer(), PSBuffer->GetBufferSize(), 0, &PS);
 
+			// NOTE(georgy): Create rasterizer state
+			ID3D11RasterizerState *RasterizerState;
+			
+			D3D11_RASTERIZER_DESC RasterizerStateDescr;
+  			RasterizerStateDescr.FillMode = D3D11_FILL_SOLID;
+  			RasterizerStateDescr.CullMode = D3D11_CULL_BACK;
+  			RasterizerStateDescr.FrontCounterClockwise = TRUE;
+  			RasterizerStateDescr.DepthBias = 0;
+  			RasterizerStateDescr.DepthBiasClamp = 0;
+  			RasterizerStateDescr.SlopeScaledDepthBias = 0;
+  			RasterizerStateDescr.DepthClipEnable = TRUE;
+  			RasterizerStateDescr.ScissorEnable = FALSE;
+  			RasterizerStateDescr.MultisampleEnable = FALSE;
+  			RasterizerStateDescr.AntialiasedLineEnable = FALSE;
+
+			Direct3D->Device->CreateRasterizerState(&RasterizerStateDescr, &RasterizerState);
+
+			// NOTE(georgy): Create depth stencil state
+			ID3D11DepthStencilState *DepthStencilState;
+
+			D3D11_DEPTH_STENCIL_DESC DepthStencilStateDescr;
+			DepthStencilStateDescr.DepthEnable = true;
+			DepthStencilStateDescr.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+			DepthStencilStateDescr.DepthFunc = D3D11_COMPARISON_LESS;
+			DepthStencilStateDescr.StencilEnable = false;
+			DepthStencilStateDescr.StencilReadMask = 0;
+			DepthStencilStateDescr.StencilWriteMask = 0;
+			DepthStencilStateDescr.FrontFace = {};
+			DepthStencilStateDescr.BackFace = {};
+
+			Direct3D->Device->CreateDepthStencilState(&DepthStencilStateDescr, &DepthStencilState);
+
+			// NOTE(georgy): Create blend state
+			ID3D11BlendState *BlendState;
+
+			D3D11_BLEND_DESC BlendStateDescr = {};
+  			BlendStateDescr.AlphaToCoverageEnable = FALSE;
+  			BlendStateDescr.IndependentBlendEnable = FALSE;
+			BlendStateDescr.RenderTarget[0].BlendEnable = FALSE;
+			BlendStateDescr.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+			BlendStateDescr.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+			BlendStateDescr.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+			BlendStateDescr.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+			BlendStateDescr.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+			BlendStateDescr.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+			BlendStateDescr.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+			Direct3D->Device->CreateBlendState(&BlendStateDescr, &BlendState);
+
+			// NOTE(georgy): Create vertex buffer for a triangle
+
+			v3 Pos0 = V3(-1.0f, -1.0f, 0.0f);
+			v3 Pos1 = V3(1.0f, -1.0f, 0.0f);
+			v3 Pos2 = V3(-1.0f, 1.0f, 0.0f);
+			v3 Pos3 = V3(1.0f, 1.0f, 0.0f);
+
+			v2 UV0 = V2(0.0f, 1.0f);
+			v2 UV1 = V2(1.0f, 1.0f);
+			v2 UV2 = V2(0.0f, 0.0f);
+			v2 UV3 = V2(1.0f, 0.0f);
+
+			v3 Edge1 = Pos3 - Pos2;
+			v3 Edge2 = Pos0 - Pos2;
+			v2 DeltaUV1 = UV3 - UV2;
+			v2 DeltaUV2 = UV0 - UV2;
+
+			v3 Tangent;
+			Tangent.x = (DeltaUV2.y * Edge1.x - DeltaUV1.y * Edge2.x);
+			Tangent.y = (DeltaUV2.y * Edge1.y - DeltaUV1.y * Edge2.y);
+			Tangent.z = (DeltaUV2.y * Edge1.z - DeltaUV1.y * Edge2.z);
+			Tangent.Normalize();
+
+			v3 Bitangent;
+			Bitangent.x = (-DeltaUV2.x * Edge1.x + DeltaUV1.x * Edge2.x);
+			Bitangent.y = (-DeltaUV2.x * Edge1.y + DeltaUV1.x * Edge2.y);
+			Bitangent.z = (-DeltaUV2.x * Edge1.z + DeltaUV1.x * Edge2.z);
+			Bitangent.Normalize();
+
+			vertex QuadVertices[] =
+			{
+				{ Pos0, V3(0.0f, 0.0f, -1.0f), UV0, Tangent, Bitangent },
+				{ Pos1, V3(0.0f, 0.0f, -1.0f), UV1, Tangent, Bitangent },
+				{ Pos2, V3(0.0f, 0.0f, -1.0f), UV2, Tangent, Bitangent },
+				{ Pos3, V3(0.0f, 0.0f, -1.0f), UV3, Tangent, Bitangent }
+			};
+
+			ID3D11Buffer *VertexBuffer;
+
+			D3D11_BUFFER_DESC VertexBufferDescr;
+			VertexBufferDescr.ByteWidth = sizeof(QuadVertices);
+			VertexBufferDescr.Usage = D3D11_USAGE_IMMUTABLE;
+			VertexBufferDescr.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+			VertexBufferDescr.CPUAccessFlags = 0;
+			VertexBufferDescr.MiscFlags = 0;
+			VertexBufferDescr.StructureByteStride = 0;
+
+			D3D11_SUBRESOURCE_DATA VertexBufferInitData;
+			VertexBufferInitData.pSysMem = QuadVertices;
+  			VertexBufferInitData.SysMemPitch = 0;
+			VertexBufferInitData.SysMemSlicePitch = 0;
+
+			Direct3D->Device->CreateBuffer(&VertexBufferDescr, &VertexBufferInitData, &VertexBuffer);
+
+			// NOTE(georgy): Create input layout
 			ID3D11InputLayout *InputLayout;
 			D3D11_INPUT_ELEMENT_DESC InputLayoutDescription[] = 
 			{
-				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-				{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(vertex, Normal), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(vertex, TexCoords), D3D11_INPUT_PER_VERTEX_DATA, 0 },
-				{ "WORLD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-				{ "WORLD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-				{ "WORLD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-				{ "WORLD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+				{"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 3*sizeof(float), D3D11_INPUT_PER_VERTEX_DATA, 0},
+				{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 6*sizeof(float), D3D11_INPUT_PER_VERTEX_DATA, 0},
+				{"TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 8*sizeof(float), D3D11_INPUT_PER_VERTEX_DATA, 0},
+				{"BITANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 11*sizeof(float), D3D11_INPUT_PER_VERTEX_DATA, 0},
 			};
-			Direct3D->Device->CreateInputLayout(InputLayoutDescription, sizeof(InputLayoutDescription)/sizeof(InputLayoutDescription[0]), 
+			Direct3D->Device->CreateInputLayout(InputLayoutDescription, ArrayCount(InputLayoutDescription), 
 												VSBuffer->GetBufferPointer(), VSBuffer->GetBufferSize(), &InputLayout);
+
 			VSBuffer->Release();
 			PSBuffer->Release();
 
+			// NOTE(georgy): Create constant buffer for matrices
+			ID3D11Buffer *MatrixBuffer;
+
+			D3D11_BUFFER_DESC MatrixBufferDescr;
+			MatrixBufferDescr.ByteWidth = sizeof(matrix_buffer);
+			MatrixBufferDescr.Usage = D3D11_USAGE_DYNAMIC;
+			MatrixBufferDescr.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			MatrixBufferDescr.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+			MatrixBufferDescr.MiscFlags = 0;
+			MatrixBufferDescr.StructureByteStride = 0;
+
+			Direct3D->Device->CreateBuffer(&MatrixBufferDescr, 0, &MatrixBuffer);
+
+			// NOTE(georgy): Create constant buffer for camera info
+			ID3D11Buffer *CameraInfoBuffer;
+
+			D3D11_BUFFER_DESC CameraInfoBufferDescr;
+			CameraInfoBufferDescr.ByteWidth = sizeof(v4);
+			CameraInfoBufferDescr.Usage = D3D11_USAGE_DYNAMIC;
+			CameraInfoBufferDescr.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			CameraInfoBufferDescr.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+			CameraInfoBufferDescr.MiscFlags = 0;
+			CameraInfoBufferDescr.StructureByteStride = 0;
+
+			Direct3D->Device->CreateBuffer(&CameraInfoBufferDescr, 0, &CameraInfoBuffer);
+
+			// NOTE(georgy): Create texture and sampler state
 #if 0
+			ID3D11Resource *BrickTexture;
+			ID3D11ShaderResourceView *BrickTextureResourceView;
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, L"bricks2.jpg", &BrickTexture, &BrickTextureResourceView);
+
+			ID3D11Resource *BrickNormalMap;
+			ID3D11ShaderResourceView *BrickNormalMapResourceView;
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, L"bricks2_normal.jpg", &BrickNormalMap, &BrickNormalMapResourceView);
+
+			ID3D11Resource *BrickDisplacementMap;
+			ID3D11ShaderResourceView *BrickDisplacementMapResourceView;
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, L"bricks2_disp.jpg", &BrickDisplacementMap, &BrickDisplacementMapResourceView);
+#else
 			ID3D11Resource *WoodTexture;
 			ID3D11ShaderResourceView *WoodTextureResourceView;
-			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, 
-									 L"wood.png", &WoodTexture, &WoodTextureResourceView);
-			WoodTexture->Release();
-			Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &WoodTextureResourceView);
-#endif
-			ID3D11Resource *TransparentTexture;
-			ID3D11ShaderResourceView *TransparentTextureResourceView;
-			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, 
-									 L"transparent.png", &TransparentTexture, &TransparentTextureResourceView);
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, L"wood.png", &WoodTexture, &WoodTextureResourceView);
 
-			ID3D11Resource *Cubemap;
-			ID3D11ShaderResourceView *CubemapSRV;
-			CreateDDSTextureFromFile(Direct3D->Device, L"Skybox.dds", &Cubemap, &CubemapSRV);
+			ID3D11Resource *ToyBoxNormalMap;
+			ID3D11ShaderResourceView *ToyBoxNormalMapResourceView;
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, L"toy_box_normal.png", &ToyBoxNormalMap, &ToyBoxNormalMapResourceView);
+
+			ID3D11Resource *ToyBoxDisplacementMap;
+			ID3D11ShaderResourceView *ToyBoxDisplacementMapResourceView;
+			CreateWICTextureFromFile(Direct3D->Device, Direct3D->ImmediateContext, L"toy_box_disp.png", &ToyBoxDisplacementMap, &ToyBoxDisplacementMapResourceView);
+#endif
 
 			ID3D11SamplerState *SamplerState;
-			D3D11_SAMPLER_DESC SamplerDescription;
-			SamplerDescription.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-			SamplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-			SamplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-			SamplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-			SamplerDescription.MipLODBias = 0;
-			SamplerDescription.MaxAnisotropy = 1;
-			SamplerDescription.ComparisonFunc = D3D11_COMPARISON_NEVER;
-			SamplerDescription.MinLOD = -D3D11_FLOAT32_MAX;
-			SamplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
+			D3D11_SAMPLER_DESC SamplerDescr;
+			SamplerDescr.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+			SamplerDescr.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+			SamplerDescr.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+			SamplerDescr.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+			SamplerDescr.MipLODBias = 0;
+			SamplerDescr.MaxAnisotropy = 1;
+			SamplerDescr.ComparisonFunc = D3D11_COMPARISON_NEVER;
+			SamplerDescr.MinLOD = -D3D11_FLOAT32_MAX;
+			SamplerDescr.MaxLOD = D3D11_FLOAT32_MAX;
 
-			Direct3D->Device->CreateSamplerState(&SamplerDescription, &SamplerState);
+			Direct3D->Device->CreateSamplerState(&SamplerDescr, &SamplerState);
 
-#if 0
-			vertex Vertices[] =
-				{
-					vec3(-1.0f, -1.0f, -1.0f), vec4(1.0f, 1.0f, 1.0f, 1.0f),
-					vec3(-1.0f, 1.0f, -1.0f), vec4(0.0f, 0.0f, 0.0f, 1.0f),
-					vec3(1.0f, 1.0f, -1.0f), vec4(1.0f, 0.0f, 0.0f, 1.0f),
-					vec3(1.0f, -1.0f, -1.0f), vec4(0.0f, 1.0f, 0.0f, 1.0f),
-					vec3(-1.0f, -1.0f, 1.0f), vec4(0.0f, 0.0f, 1.0f, 1.0f),
-					vec3(-1.0f, 1.0f, 1.0f), vec4(1.0f, 1.0f, 0.0f, 1.0f),
-					vec3(1.0f, 1.0f, 1.0f), vec4(1.0f, 0.0f, 1.0f, 1.0f),
-					vec3(1.0f, -1.0f, 1.0f), vec4(0.0f, 1.0f, 1.0f, 1.0f),
-				};
-#endif
+			RAWINPUTDEVICE RIDs[1];
+			RIDs[0].usUsagePage = 0x01;
+            RIDs[0].usUsage = 0x02; // NOTE(georgy): mouse input
+            RIDs[0].dwFlags = 0;
+            RIDs[0].hwndTarget = Window;
 
-			vertex Vertices[] = 
-			{
-				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 1.0f),   
-				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 1.0f), 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 0.0f), 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(0.0f, 0.0f), 
-				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 0.0f),
-				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f,  0.0f, 1.0f), vec2(1.0f, 1.0f),
+			if(!RegisterRawInputDevices(RIDs, ArrayCount(RIDs), sizeof(RIDs[0])))
+            {
+                GlobalRunning = false;
+                MessageBox(Window, "Can't register input devices.", 0, MB_OK);
+            }
 
-				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(0.0f, 0.0f),
-				vec3(-0.5f,  0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(1.0f, 0.0f), 
-				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(1.0f, 1.0f),
-				vec3(-0.5f, -0.5f, -0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(1.0f, 1.0f),
-				vec3(-0.5f, -0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(0.0f, 1.0f), 
-				vec3(-0.5f,  0.5f,  0.5f), vec3(-1.0f,  0.0f,  0.0f), vec2(0.0f, 0.0f), 
+			game_input GameInput = {};
+			POINT MouseP;
+            GetCursorPos(&MouseP);
+            ScreenToClient(Window, &MouseP);
+            GameInput.MouseX = MouseP.x;
+            GameInput.MouseY = MouseP.y;
 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(1.0f, 0.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(0.0f, 0.0f),
-				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(0.0f, 1.0f),
-				vec3(0.5f, -0.5f, -0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(0.0f, 1.0f), 
-				vec3(0.5f, -0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(1.0f, 1.0f), 
-				vec3(0.5f,  0.5f,  0.5f),  vec3(1.0f,  0.0f,  0.0f), vec2(1.0f, 0.0f), 
+			v3 CameraPos = V3(0.0f, 0.0f, -3.0f);
+			v3 CameraFront = V3(0.0f, 0.0f, 1.0f);
+			v3 CameraRight = V3(1.0f, 0.0f, 0.0f);
+			float CameraPitch = 0.0f;
+			float CameraHead = 0.0f;
+			float MouseSensitivity = 0.005f;
 
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(0.0f, 0.0f),
-				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(1.0f, 0.0f),
-				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(1.0f, 1.0f),
-				vec3(0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(1.0f, 1.0f),  
-				vec3(-0.5f, -0.5f,  0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(0.0f, 1.0f),
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f, -1.0f,  0.0f), vec2(0.0f, 0.0f),
-
-				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 1.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(1.0f, 1.0f),
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(1.0f, 0.0f),
-				vec3(0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(1.0f, 0.0f),  
-				vec3(-0.5f,  0.5f,  0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 0.0f),
-				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  1.0f,  0.0f), vec2(0.0f, 1.0f), 
-
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
-				vec3(0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 1.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
-				vec3(0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(1.0f, 0.0f),
-				vec3(-0.5f,  0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 0.0f),
-				vec3(-0.5f, -0.5f, -0.5f),  vec3(0.0f,  0.0f, -1.0f), vec2(0.0f, 1.0f),
-			};
-
-			ID3D11Buffer *VB;
-			D3D11_BUFFER_DESC VBDescription;
-			VBDescription.ByteWidth = sizeof(Vertices);
-			VBDescription.Usage = D3D11_USAGE_IMMUTABLE;
-			VBDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-			VBDescription.CPUAccessFlags = 0;
-			VBDescription.MiscFlags = 0;
-			D3D11_SUBRESOURCE_DATA VBInitData;
-			VBInitData.pSysMem = Vertices;
-			Direct3D->Device->CreateBuffer(&VBDescription, &VBInitData, &VB);
-
-			mat4 InstancedData[] = 
-			{
-				Identity(),
-				Translate(vec3(2.0f, 0.0f, 0.0f)),
-			};
-
-			ID3D11Buffer *VBInstanced;
-			D3D11_BUFFER_DESC VBInstancedDescription;
-			VBInstancedDescription.ByteWidth = sizeof(InstancedData);
-			VBInstancedDescription.Usage = D3D11_USAGE_IMMUTABLE;
-			VBInstancedDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-			VBInstancedDescription.CPUAccessFlags = 0;
-			VBInstancedDescription.MiscFlags = 0;
-			D3D11_SUBRESOURCE_DATA VBInstancedInitData;
-			VBInstancedInitData.pSysMem = InstancedData;
-			Direct3D->Device->CreateBuffer(&VBInstancedDescription, &VBInstancedInitData, &VBInstanced);
-
-			real32 SkyboxVertices[] = 
-			{
-				-1.0f,  1.0f, -1.0f,
-				-1.0f, -1.0f, -1.0f,
-				1.0f, -1.0f, -1.0f,
-				1.0f, -1.0f, -1.0f,
-				1.0f,  1.0f, -1.0f,
-				-1.0f,  1.0f, -1.0f,
-
-				-1.0f, -1.0f,  1.0f,
-				-1.0f, -1.0f, -1.0f,
-				-1.0f,  1.0f, -1.0f,
-				-1.0f,  1.0f, -1.0f,
-				-1.0f,  1.0f,  1.0f,
-				-1.0f, -1.0f,  1.0f,
-
-				1.0f, -1.0f, -1.0f,
-				1.0f, -1.0f,  1.0f,
-				1.0f,  1.0f,  1.0f,
-				1.0f,  1.0f,  1.0f,
-				1.0f,  1.0f, -1.0f,
-				1.0f, -1.0f, -1.0f,
-
-				-1.0f, -1.0f,  1.0f,
-				-1.0f,  1.0f,  1.0f,
-				1.0f,  1.0f,  1.0f,
-				1.0f,  1.0f,  1.0f,
-				1.0f, -1.0f,  1.0f,
-				-1.0f, -1.0f,  1.0f,
-
-				-1.0f,  1.0f, -1.0f,
-				1.0f,  1.0f, -1.0f,
-				1.0f,  1.0f,  1.0f,
-				1.0f,  1.0f,  1.0f,
-				-1.0f,  1.0f,  1.0f,
-				-1.0f,  1.0f, -1.0f,
-
-				-1.0f, -1.0f, -1.0f,
-				-1.0f, -1.0f,  1.0f,
-				1.0f, -1.0f, -1.0f,
-				1.0f, -1.0f, -1.0f,
-				-1.0f, -1.0f,  1.0f,
-				1.0f, -1.0f,  1.0f
-			};
-
-			ID3D11Buffer *VBSkybox;
-			D3D11_BUFFER_DESC VBSkyboxDescription;
-			VBSkyboxDescription.ByteWidth = sizeof(SkyboxVertices);
-			VBSkyboxDescription.Usage = D3D11_USAGE_IMMUTABLE;
-			VBSkyboxDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-			VBSkyboxDescription.CPUAccessFlags = 0;
-			VBSkyboxDescription.MiscFlags = 0;
-			D3D11_SUBRESOURCE_DATA VBSkyboxInitData;
-			VBSkyboxInitData.pSysMem = SkyboxVertices;
-			Direct3D->Device->CreateBuffer(&VBSkyboxDescription, &VBSkyboxInitData, &VBSkybox);
-
-			real32 ScreenQuadVertices[] = 
-			{
-				-1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-				1.0f, 1.0f, 0.0f, 1.0f, 0.0f,
-				1.0f, -1.0f, 0.0f, 1.0f, 1.0f,
-				1.0f, -1.0f, 0.0f, 1.0f, 1.0f,
-				-1.0f, -1.0f, 0.0f, 0.0f, 1.0f,
-				-1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-			};
-
-			ID3D11Buffer *ScreenQuadVB;
-			D3D11_BUFFER_DESC ScreenQuadVBDescription;
-			ScreenQuadVBDescription.ByteWidth = sizeof(ScreenQuadVertices);
-			ScreenQuadVBDescription.Usage = D3D11_USAGE_IMMUTABLE;
-			ScreenQuadVBDescription.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-			ScreenQuadVBDescription.CPUAccessFlags = 0;
-			ScreenQuadVBDescription.MiscFlags = 0;
-			D3D11_SUBRESOURCE_DATA ScreenQuadVBInitData;
-			ScreenQuadVBInitData.pSysMem = ScreenQuadVertices;
-			Direct3D->Device->CreateBuffer(&ScreenQuadVBDescription, &ScreenQuadVBInitData, &ScreenQuadVB);
-
-#if 0
-			UINT Indices[] = {
-				0, 1, 2,
-				0, 2, 3,
-				4, 6, 5,
-				4, 7, 6,
-				4, 5, 1,
-				4, 1, 0,
-				3, 2, 6,
-				3, 6, 7,
-				1, 5, 6,
-				1, 6, 2,
-				4, 0, 3,
-				4, 3, 7
-			};
-
-			ID3D11Buffer *IB;
-			D3D11_BUFFER_DESC IBDescription;
-			IBDescription.ByteWidth = sizeof(Indices);
-			IBDescription.Usage = D3D11_USAGE_IMMUTABLE;
-			IBDescription.BindFlags = D3D11_BIND_INDEX_BUFFER;
-			IBDescription.CPUAccessFlags = 0;
-			IBDescription.MiscFlags = 0;
-			D3D11_SUBRESOURCE_DATA IBInitData;
-			IBInitData.pSysMem = Indices;
-			Direct3D->Device->CreateBuffer(&IBDescription, &IBInitData, &IB);
-#endif
-
-			ID3D11Buffer *MatrixBuffer;
-			D3D11_BUFFER_DESC MatrixBufferDescription;
-			MatrixBufferDescription.ByteWidth = sizeof(matrix_buffer);
-			MatrixBufferDescription.Usage = D3D11_USAGE_DYNAMIC;
-			MatrixBufferDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-			MatrixBufferDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-			MatrixBufferDescription.MiscFlags = 0;
-			Direct3D->Device->CreateBuffer(&MatrixBufferDescription, 0, &MatrixBuffer);
-
-			mat4 Model;
-			mat4 View;
-			mat4 Projection;
-			Model = Identity() * Scale(1.0f);
-			vec3 CameraPos = vec3(2.0f, 0.0f, -5.0f);
-			View = LookAt(CameraPos, CameraPos + vec3(0.0f, 0.0f, 1.0f));
-			Projection = Perspective(45.0f, (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight, 0.1f, 100.0f);
-
-			D3D11_MAPPED_SUBRESOURCE MappedResource;
-			Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-			matrix_buffer *DataPtr;
-			DataPtr = (matrix_buffer *)MappedResource.pData;
-			DataPtr->Model = Model;
-			DataPtr->View = View;
-			DataPtr->Projection = Projection;
-			Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
-			Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
-
-			ID3D11Buffer *LightBuffer;
-			D3D11_BUFFER_DESC LightBufferDescription;
-			LightBufferDescription.ByteWidth = sizeof(light_info);
-			LightBufferDescription.Usage = D3D11_USAGE_DYNAMIC;
-			LightBufferDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-			LightBufferDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-			LightBufferDescription.MiscFlags = 0;
-			Direct3D->Device->CreateBuffer(&LightBufferDescription, 0, &LightBuffer);
-
-			light_info LightData;
-			LightData.DirLight[0].Diffuse = vec3(0.4f, 0.4f, 0.4f);
-			LightData.DirLight[0].Specular = vec3(0.5f, 0.5f, 0.5f);
-			LightData.DirLight[0].Dir = vec3(0.5f, -0.5f, 0.5f);
-			LightData.DirLight[1].Diffuse = vec3(0.4f, 0.4f, 0.4f);
-			LightData.DirLight[1].Specular = vec3(0.5f, 0.5f, 0.5f);
-			LightData.DirLight[1].Dir = vec3(-0.5f, -0.5f, -0.5f);
-			LightData.PointLight.Diffuse = vec3(0.3f, 0.3f, 0.3f);
-			LightData.PointLight.Specular = vec3(0.7f, 0.7f, 0.7f);
-			LightData.PointLight.PosW = vec3(2.0f, 0.0f, 0.0f);
-			LightData.SpotLight.Diffuse = vec3(0.5f, 0.5f, 0.0f);
-	 		LightData.SpotLight.Specular = vec3(1.0f, 1.0f, 1.0f);
-			LightData.SpotLight.Dir = vec3(0.0f, 0.0f, 1.0f);
-			LightData.ViewPosW = CameraPos;
-
-			ID3D11RasterizerState *RasterizerState;
-			D3D11_RASTERIZER_DESC RasterizerDescription = {};
-			RasterizerDescription.FillMode = D3D11_FILL_SOLID;
-			RasterizerDescription.CullMode = D3D11_CULL_NONE;
-			RasterizerDescription.FrontCounterClockwise = FALSE;
-			RasterizerDescription.DepthBias = 0;
-			RasterizerDescription.DepthBiasClamp = 0;
-			RasterizerDescription.SlopeScaledDepthBias = 0;
-			RasterizerDescription.DepthClipEnable = TRUE;
-			Direct3D->Device->CreateRasterizerState(&RasterizerDescription, &RasterizerState);
-
-			ID3D11BlendState *BlendState;
-			D3D11_BLEND_DESC BlendDescription = {};
-			BlendDescription.AlphaToCoverageEnable = false;
-			BlendDescription.IndependentBlendEnable = false;
-			BlendDescription.RenderTarget[0].BlendEnable = true;
-			BlendDescription.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
-			BlendDescription.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
-			BlendDescription.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
-			BlendDescription.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-			BlendDescription.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
-			BlendDescription.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
-			BlendDescription.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-			Direct3D->Device->CreateBlendState(&BlendDescription, &BlendState);
-
-			ID3D11DepthStencilState *StencilPassAlwaysState;
-			D3D11_DEPTH_STENCIL_DESC StencilPassAlwaysDescription;
-			StencilPassAlwaysDescription.DepthEnable = true;
-			StencilPassAlwaysDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-			StencilPassAlwaysDescription.DepthFunc = D3D11_COMPARISON_LESS;
-			StencilPassAlwaysDescription.StencilEnable = true;
-			StencilPassAlwaysDescription.StencilReadMask = 0xFF;
-			StencilPassAlwaysDescription.StencilWriteMask = 0xFF;
-			StencilPassAlwaysDescription.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
-			StencilPassAlwaysDescription.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
-			StencilPassAlwaysDescription.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
-			StencilPassAlwaysDescription.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
-			StencilPassAlwaysDescription.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
-			StencilPassAlwaysDescription.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
-			StencilPassAlwaysDescription.BackFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
-			StencilPassAlwaysDescription.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
-			Direct3D->Device->CreateDepthStencilState(&StencilPassAlwaysDescription, &StencilPassAlwaysState);
-
-			ID3D11DepthStencilState *TESTStencilState;
-			D3D11_DEPTH_STENCIL_DESC TESTStencilDescription;
-			TESTStencilDescription.DepthEnable = true;
-			TESTStencilDescription.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-			TESTStencilDescription.DepthFunc = D3D11_COMPARISON_LESS;
-			TESTStencilDescription.StencilEnable = true;
-			TESTStencilDescription.StencilReadMask = 0xFF;
-			TESTStencilDescription.StencilWriteMask = 0xFF;
-			TESTStencilDescription.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
-			TESTStencilDescription.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
-			TESTStencilDescription.FrontFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
-			TESTStencilDescription.FrontFace.StencilFunc = D3D11_COMPARISON_LESS;
-			TESTStencilDescription.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
-			TESTStencilDescription.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
-			TESTStencilDescription.BackFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
-			TESTStencilDescription.BackFace.StencilFunc = D3D11_COMPARISON_LESS;
-			Direct3D->Device->CreateDepthStencilState(&TESTStencilDescription, &TESTStencilState);
-
-			ID3D11DepthStencilState *SkyboxDepthState;
-			D3D11_DEPTH_STENCIL_DESC SkyboxDepthStateDesc = {};
-			SkyboxDepthStateDesc.DepthEnable = true;
-			SkyboxDepthStateDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-			SkyboxDepthStateDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
-			SkyboxDepthStateDesc.StencilEnable = false;
-			Direct3D->Device->CreateDepthStencilState(&SkyboxDepthStateDesc, &SkyboxDepthState);
-#endif
-
-			ID3D10Blob *VSNormalsBuffer;
-			ID3D10Blob *GSNormalsBuffer;
-			ID3D10Blob *PSNormalsBuffer;
-			Hr = D3DCompileFromFile(L"shaders/TestVS.hlsl", 0, 0, "VS", "vs_5_0", ShaderFlags, 0,
-									&VSNormalsBuffer, &CompilationMessages);
-			if(CompilationMessages)
-			{
-				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
-				CompilationMessages->Release();
-			}
-			if(FAILED(Hr))
-			{
-				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
-			}
-
-			Hr = D3DCompileFromFile(L"shaders/TestGS.hlsl", 0, 0, "GS", "gs_5_0", ShaderFlags, 0,
-									&GSNormalsBuffer, &CompilationMessages);
-			if(CompilationMessages)
-			{
-				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
-				CompilationMessages->Release();
-			}
-			if(FAILED(Hr))
-			{
-				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
-			}
-
-			Hr = D3DCompileFromFile(L"shaders/TestPS.hlsl", 0, 0, "PS", "ps_5_0", ShaderFlags, 0,
-									&PSNormalsBuffer, &CompilationMessages);
-			if(CompilationMessages)
-			{
-				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
-				CompilationMessages->Release();
-			}
-			if(FAILED(Hr))
-			{
-				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
-			}
-
-			ID3D11VertexShader *VSNormals;
-			ID3D11GeometryShader *GSNormals;
-			ID3D11PixelShader *PSNormals;
-
-			Direct3D->Device->CreateVertexShader(VSNormalsBuffer->GetBufferPointer(), VSNormalsBuffer->GetBufferSize(), 0, &VSNormals);
-			Direct3D->Device->CreateGeometryShader(GSNormalsBuffer->GetBufferPointer(), GSNormalsBuffer->GetBufferSize(), 0, &GSNormals);
-			Direct3D->Device->CreatePixelShader(PSNormalsBuffer->GetBufferPointer(), PSNormalsBuffer->GetBufferSize(), 0, &PSNormals);
-			PSNormalsBuffer->Release();
-			GSNormalsBuffer->Release();
-			PSNormalsBuffer->Release();
-
-			ID3D10Blob *VSSkyboxBuffer;
-			ID3D10Blob *PSSkyboxBuffer;
-			Hr = D3DCompileFromFile(L"shaders/SkyboxVS.hlsl", 0, 0, "VS", "vs_5_0", ShaderFlags, 0,
-									&VSSkyboxBuffer, &CompilationMessages);
-			if(CompilationMessages)
-			{
-				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
-				CompilationMessages->Release();
-			}
-			if(FAILED(Hr))
-			{
-				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
-			}
-
-			Hr = D3DCompileFromFile(L"shaders/SkyboxPS.hlsl", 0, 0, "PS", "ps_5_0", ShaderFlags, 0, 
-									&PSSkyboxBuffer, &CompilationMessages);
-			if(CompilationMessages)
-			{
-				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
-				CompilationMessages->Release();
-			}
-			if(FAILED(Hr))
-			{
-				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
-			}
-
-			ID3D11VertexShader *VSSkybox;
-			ID3D11PixelShader *PSSkybox;
-			Direct3D->Device->CreateVertexShader(VSSkyboxBuffer->GetBufferPointer(), VSSkyboxBuffer->GetBufferSize(), 0, &VSSkybox);
-			Direct3D->Device->CreatePixelShader(PSSkyboxBuffer->GetBufferPointer(), PSSkyboxBuffer->GetBufferSize(), 0, &PSSkybox);
-
-			ID3D11InputLayout *SkyboxInputLayout;
-			D3D11_INPUT_ELEMENT_DESC SkyboxInputLayoutDescription[] = 
-			{
-				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-			};
-			Direct3D->Device->CreateInputLayout(SkyboxInputLayoutDescription, 1, 
-												VSSkyboxBuffer->GetBufferPointer(), VSSkyboxBuffer->GetBufferSize(), &SkyboxInputLayout);
-
-			VSSkyboxBuffer->Release();
-			PSSkyboxBuffer->Release();
-
-			ID3D10Blob *VSScreenQuadBuffer;
-			ID3D10Blob *PSScreenQuadBuffer;
-			Hr = D3DCompileFromFile(L"shaders/QuadV.hlsl", 0, 0, "VS", "vs_5_0", ShaderFlags, 0, 
-									&VSScreenQuadBuffer, &CompilationMessages);
-			if(CompilationMessages)
-			{
-				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
-				CompilationMessages->Release();
-			}
-			if(FAILED(Hr))
-			{
-				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
-			}
-
-			Hr = D3DCompileFromFile(L"shaders/QuadP.hlsl", 0, 0, "PS", "ps_5_0", ShaderFlags, 0, 
-									&PSScreenQuadBuffer, &CompilationMessages);
-			if(CompilationMessages)
-			{
-				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
-				CompilationMessages->Release();
-			}
-			if(FAILED(Hr))
-			{
-				MessageBox(0, "D3DCompileFromFile failed", 0, 0);
-			}
-
-			ID3D11VertexShader *VSQuadScreen;
-			ID3D11PixelShader *PSQuadScreen;
-			Direct3D->Device->CreateVertexShader(VSScreenQuadBuffer->GetBufferPointer(), VSScreenQuadBuffer->GetBufferSize(), 0, &VSQuadScreen);
-			Direct3D->Device->CreatePixelShader(PSScreenQuadBuffer->GetBufferPointer(), PSScreenQuadBuffer->GetBufferSize(),0, &PSQuadScreen);
-
-			ID3D11InputLayout *InputLayoutQuad;
-			D3D11_INPUT_ELEMENT_DESC QuadScreenInputLayoutDescription[] = 
-			{
-				{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 3*sizeof(real32), D3D11_INPUT_PER_VERTEX_DATA, 0},
-			};
-			Direct3D->Device->CreateInputLayout(QuadScreenInputLayoutDescription, 2,
-												VSScreenQuadBuffer->GetBufferPointer(), VSScreenQuadBuffer->GetBufferSize(), &InputLayoutQuad);
-			VSScreenQuadBuffer->Release();
-			PSScreenQuadBuffer->Release();
-
-			ID3D11Texture2D *QuadTexture;
-			ID3D11RenderTargetView *QuadTextureRenderTarget;
-			
-			D3D11_TEXTURE2D_DESC QuadTextureDesc = {};
-			QuadTextureDesc.Width = Direct3D->WindowWidth;
-			QuadTextureDesc.Height = Direct3D->WindowHeight;
-			QuadTextureDesc.MipLevels = 1;
-			QuadTextureDesc.ArraySize = 1;
-			QuadTextureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-			QuadTextureDesc.SampleDesc.Count = 4;
-			QuadTextureDesc.Usage = D3D11_USAGE_DEFAULT;
-			QuadTextureDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
-			QuadTextureDesc.CPUAccessFlags = 0;
-			QuadTextureDesc.MiscFlags = 0;
-			Direct3D->Device->CreateTexture2D(&QuadTextureDesc, 0, &QuadTexture);
-
-			D3D11_RENDER_TARGET_VIEW_DESC RenderTargetViewDesc = {};
-			RenderTargetViewDesc.Format = QuadTextureDesc.Format;
-			RenderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
-			Direct3D->Device->CreateRenderTargetView(QuadTexture, &RenderTargetViewDesc, &QuadTextureRenderTarget);
-
-			ID3D11Texture2D *QuadTextureDownsampled;
-			ID3D11ShaderResourceView *QuadTextureSRVDownsampled;
-			D3D11_TEXTURE2D_DESC QuadTextureDescDownsampled = {};
-			QuadTextureDescDownsampled.Width = Direct3D->WindowWidth;
-			QuadTextureDescDownsampled.Height = Direct3D->WindowHeight;
-			QuadTextureDescDownsampled.MipLevels = 1;
-			QuadTextureDescDownsampled.ArraySize = 1;
-			QuadTextureDescDownsampled.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-			QuadTextureDescDownsampled.SampleDesc.Count = 1;
-			QuadTextureDescDownsampled.Usage = D3D11_USAGE_DEFAULT;
-			QuadTextureDescDownsampled.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-			QuadTextureDescDownsampled.CPUAccessFlags = 0;
-			QuadTextureDescDownsampled.MiscFlags = 0;
-			Direct3D->Device->CreateTexture2D(&QuadTextureDescDownsampled, 0, &QuadTextureDownsampled);
-
-			D3D11_SHADER_RESOURCE_VIEW_DESC QuadSRVDesc = {};
-			QuadSRVDesc.Format = QuadTextureDesc.Format;
-			QuadSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-			QuadSRVDesc.Texture2D.MostDetailedMip = 0;
-			QuadSRVDesc.Texture2D.MipLevels = 1;
-			Direct3D->Device->CreateShaderResourceView(QuadTextureDownsampled, &QuadSRVDesc, &QuadTextureSRVDownsampled);
-
+			// NOTE(georgy): Game loop
+			real32 DeltaTime = 0.016f;
 			GlobalRunning = true;
 			LARGE_INTEGER LastCounter = GetWallClock();
 			while (GlobalRunning)
 			{
-				ProcessPendingMessages();
+				if(GlobalWindowIsFocused)
+                {
+                    RECT ClipRect;
+                    GetWindowRect(Window, &ClipRect);
+                    LONG ClipRectHeight = ClipRect.bottom - ClipRect.top;
+                    LONG ClipRectWidth = ClipRect.right - ClipRect.left;
+                    ClipRect.top = ClipRect.bottom = ClipRect.top + ClipRectHeight/2;
+                    ClipRect.left = ClipRect.right = ClipRect.left + ClipRectWidth/2;
+                    ClipCursor(&ClipRect);
+                }
+                else
+                {
+                    ClipCursor(0);
+                }
+
+				GameInput.DeltaMouseX = GameInput.DeltaMouseY = 0;
+				for(uint32_t ButtonIndex = 0; ButtonIndex < ArrayCount(GameInput.Buttons); ButtonIndex++)
+				{
+					GameInput.Buttons[ButtonIndex].HalfTransitionCount = 0;					
+				}
+
+				ProcessPendingMessages(&GameInput);
+
+				CameraRight = Cross(V3(0.0f, 1.0f, 0.0f), CameraFront);
+				if(GameInput.MoveForward.EndedDown)
+				{
+					CameraPos += 10.0f*CameraFront*DeltaTime;
+				}
+				if(GameInput.MoveBack.EndedDown)
+				{
+					CameraPos -= 10.0f*CameraFront*DeltaTime;
+				}
+				if(GameInput.MoveLeft.EndedDown)
+				{
+					CameraPos -= 10.0f*CameraRight*DeltaTime;
+				}
+				if(GameInput.MoveRight.EndedDown)
+				{
+					CameraPos += 10.0f*CameraRight*DeltaTime;
+				}
+
+				CameraHead += MouseSensitivity*GameInput.DeltaMouseX;
+				CameraPitch += MouseSensitivity*GameInput.DeltaMouseY;
+				CameraPitch = (CameraPitch > 89.0f) ? 89.0f : CameraPitch;
+				CameraPitch = (CameraPitch < -89.0f) ? -89.0f : CameraPitch;
+
+				CameraFront = V3(sinf(CameraHead)*cosf(CameraPitch), sinf(-CameraPitch), cosf(CameraHead)*cosf(CameraPitch));
+
+
 				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::Black);
 				Direct3D->ImmediateContext->ClearDepthStencilView(Direct3D->DepthStencilView, 
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
-#if 1
-				Direct3D->ImmediateContext->ClearRenderTargetView(QuadTextureRenderTarget, Colors::Black);
-				Direct3D->ImmediateContext->OMSetRenderTargets(1, &QuadTextureRenderTarget, Direct3D->DepthStencilView);
+				Direct3D->ImmediateContext->OMSetRenderTargets(1, &Direct3D->RenderTargetView, Direct3D->DepthStencilView);
+				Direct3D->ImmediateContext->OMSetDepthStencilState(DepthStencilState, 0);
 				Direct3D->ImmediateContext->RSSetState(RasterizerState);
-				// Direct3D->ImmediateContext->OMSetDepthStencilState(StencilPassAlwaysState, 1);
-				// real32 BlendFactors[] = {0.0f, 0.0f, 0.0f, 0.0f};
-				// Direct3D->ImmediateContext->OMSetBlendState(BlendState, BlendFactors, 0xFFFFFFFF);
-				Direct3D->ImmediateContext->OMSetDepthStencilState(0, 0);
-				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
-				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				UINT Stride[] = { sizeof(vertex), sizeof(mat4) };
-				UINT Offset[] = { 0, 0 };
-				ID3D11Buffer *VBs[] = { VB, VBInstanced };
-				Direct3D->ImmediateContext->IASetVertexBuffers(0, 2, VBs, Stride, Offset);
-				// Direct3D->ImmediateContext->IASetIndexBuffer(IB, DXGI_FORMAT_R32_UINT, 0);
+				Direct3D->ImmediateContext->OMSetBlendState(BlendState, 0, 0xFFFFFFFF);
 
+				Direct3D->ImmediateContext->IASetInputLayout(InputLayout);
+				UINT Stride = sizeof(vertex);
+				UINT Offset = 0;
+				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &VertexBuffer, &Stride, &Offset);
+				Direct3D->ImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 				Direct3D->ImmediateContext->VSSetShader(VS, 0, 0);
-				Direct3D->ImmediateContext->GSSetShader(0, 0, 0);
 				Direct3D->ImmediateContext->PSSetShader(PS, 0, 0);
 
-				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &TransparentTextureResourceView);
-				Direct3D->ImmediateContext->PSSetShaderResources(1, 1, &CubemapSRV);
+				D3D11_MAPPED_SUBRESOURCE MappedResource;
+				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+				matrix_buffer *MatrixBufferPtr = (matrix_buffer *)MappedResource.pData;
+				MatrixBufferPtr->Model = Identity();
+				MatrixBufferPtr->View = LookAt(CameraPos, CameraPos + CameraFront);
+				MatrixBufferPtr->Projection = Perspective(45.0f, (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight, 0.1f, 100.0f);
+				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
+				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
+
+				Direct3D->ImmediateContext->Map(CameraInfoBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+				v3 *CameraPosShader = (v3 *)MappedResource.pData;
+				*CameraPosShader = CameraPos;
+				Direct3D->ImmediateContext->Unmap(CameraInfoBuffer, 0);
+				Direct3D->ImmediateContext->PSSetConstantBuffers(1, 1, &CameraInfoBuffer);
+
+				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &WoodTextureResourceView);
+				Direct3D->ImmediateContext->PSSetShaderResources(1, 1, &ToyBoxNormalMapResourceView);
+				Direct3D->ImmediateContext->PSSetShaderResources(2, 1, &ToyBoxDisplacementMapResourceView);
 				Direct3D->ImmediateContext->PSSetSamplers(0, 1, &SamplerState);
 
-				LightData.PointLight.PosW = vec3(3.5f, 0.0f, 
-												 sinf(GetWallClock().QuadPart / (real32)GlobalPerfCounterFrequency.QuadPart)*2.0f);
-				LightData.SpotLight.PosW = vec3(sinf(GetWallClock().QuadPart / (real32)GlobalPerfCounterFrequency.QuadPart)*2.0f, 
-												0.0f, -2.0f);
-				Direct3D->ImmediateContext->Map(LightBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-				light_info *LightPtr;
-				LightPtr = (light_info *)MappedResource.pData;
-				memcpy(LightPtr, &LightData, sizeof(LightData));
-				Direct3D->ImmediateContext->Unmap(LightBuffer, 0);
-				Direct3D->ImmediateContext->PSSetConstantBuffers(0, 1, &LightBuffer);
+				Direct3D->ImmediateContext->Draw(4, 0);
 
-				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-				DataPtr = (matrix_buffer *)MappedResource.pData;
-				DataPtr->Model = Identity();
-				DataPtr->View = View;
-				DataPtr->Projection = Projection;
-				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
-				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
-
-				// Direct3D->ImmediateContext->DrawIndexed(36, 0, 0);
-				// Direct3D->ImmediateContext->Draw(36, 0);
-				Direct3D->ImmediateContext->DrawInstanced(36, 2, 0, 0);
-
-				Direct3D->ImmediateContext->VSSetShader(VSNormals, 0, 0);
-				Direct3D->ImmediateContext->GSSetShader(GSNormals, 0, 0);
-				Direct3D->ImmediateContext->PSSetShader(PSNormals, 0, 0);
-
-				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-				DataPtr = (matrix_buffer *)MappedResource.pData;
-				DataPtr->Model = Identity();
-				DataPtr->View = View;
-				DataPtr->Projection = Projection;
-				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
-				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
-
-				// Direct3D->ImmediateContext->Draw(36, 0);
-				Direct3D->ImmediateContext->DrawInstanced(36, 2, 0, 0);
-
-				
-				Direct3D->ImmediateContext->VSSetShader(VSSkybox, 0, 0);
-				Direct3D->ImmediateContext->GSSetShader(0, 0, 0);
-				Direct3D->ImmediateContext->PSSetShader(PSSkybox, 0, 0);
-				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &CubemapSRV);
-				uint32_t SkyboxStride = 3*sizeof(real32);
-				uint32_t SkyboxOffset = 0;
-				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &VBSkybox, &SkyboxStride, &SkyboxOffset);
-				Direct3D->ImmediateContext->IASetInputLayout(SkyboxInputLayout);
-				Direct3D->ImmediateContext->OMSetDepthStencilState(SkyboxDepthState, 0);
-
-				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
-				DataPtr = (matrix_buffer *)MappedResource.pData;
-				DataPtr->Model = Identity();
-				DataPtr->View = View;
-				DataPtr->View.FirstColumn.SetW(0.0f);
-				DataPtr->View.SecondColumn.SetW(0.0f);
-				DataPtr->View.ThirdColumn.SetW(0.0f);
-				DataPtr->Projection = Projection;
-				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
-				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
-
-				Direct3D->ImmediateContext->Draw(36, 0);
-
-				Direct3D->ImmediateContext->ResolveSubresource(QuadTextureDownsampled, 0, QuadTexture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
-				Direct3D->ImmediateContext->OMSetRenderTargets(1, &Direct3D->RenderTargetView, Direct3D->DepthStencilView);
-				Direct3D->ImmediateContext->IASetInputLayout(InputLayoutQuad);
-				UINT StrideQuad = 5*sizeof(real32);
-				UINT OffsetQuad = 0;
-				Direct3D->ImmediateContext->IASetVertexBuffers(0, 1, &ScreenQuadVB, &StrideQuad, &OffsetQuad);
-				Direct3D->ImmediateContext->VSSetShader(VSQuadScreen, 0, 0);
-				Direct3D->ImmediateContext->PSSetShader(PSQuadScreen, 0, 0);
-				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &QuadTextureSRVDownsampled);
-				Direct3D->ImmediateContext->Draw(6, 0);
-
-				real32 DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
+				DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
 				LastCounter = GetWallClock();
 				char FPSBuffer[256];
 				//_snprintf_s(FPSBuffer, sizeof(FPSBuffer), "%.02fms/f\n", DeltaTime);
 				//OutputDebugString(FPSBuffer);
-#endif
+
 				Direct3D->SwapChain->Present(0, 0);
 			}
 		}
