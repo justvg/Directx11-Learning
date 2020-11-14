@@ -14,8 +14,13 @@
 typedef float real32;
 typedef double real64;
 
-#define internal static
 #define global_variable static
+
+float Lerp(float A, float B, float t)
+{
+	float Result = A + (B - A)*t;
+	return(Result);
+}
 
 //
 // NOTE(georgy): v2
@@ -611,7 +616,7 @@ struct mat4
 	};
 };
 
-internal mat4 
+static mat4 
 operator*(mat4 A, mat4 B)
 {
 	mat4 Result;
@@ -683,7 +688,7 @@ Scale(v3 Scale)
 	return(Result);
 }
 
-internal mat4
+static mat4
 Rotate(real32 Angle, v3 Axis)
 {
 	mat4 Result;
@@ -718,7 +723,7 @@ Rotate(real32 Angle, v3 Axis)
 	return(Result);
 }
 
-internal mat4
+static mat4
 LookAt(v3 From, v3 Target, v3 UpAxis = V3(0.0f, 1.0f, 0.0f))
 {
 	v3 Forward = Normalize(Target - From);
@@ -751,7 +756,35 @@ LookAt(v3 From, v3 Target, v3 UpAxis = V3(0.0f, 1.0f, 0.0f))
 	return(Result);
 }
 
-internal mat4 __vectorcall
+static mat4 
+Orthographic(float Left, float Right, float Bottom, float Top, float Near, float Far)
+{
+	mat4 Result;
+
+	Result.a11 = 2.0f / (Right - Left);
+	Result.a21 = 0.0f;
+	Result.a31 = 0.0f;
+	Result.a41 = -(Right + Left) / (Right - Left);
+
+	Result.a12 = 0.0f;
+	Result.a22 = 2.0f / (Top - Bottom);
+	Result.a32 = 0.0f;
+	Result.a42 = -(Top + Bottom) / (Top - Bottom);
+
+	Result.a13 = 0.0f;
+	Result.a23 = 0.0f;
+	Result.a33 = 1.0f / (Far - Near);
+	Result.a43 = -Near / (Far - Near);
+	
+	Result.a14 = 0.0f;
+	Result.a24 = 0.0f;
+	Result.a34 = 0.0f;
+	Result.a44 = 1.0f;
+
+	return(Result);
+}
+
+static mat4 
 Perspective(real32 FoV, real32 AspectRatio, real32 Near, real32 Far)
 {
 	real32 ZoomY = 1.0f / tanf(DEG2RAD(FoV)*0.5f);
