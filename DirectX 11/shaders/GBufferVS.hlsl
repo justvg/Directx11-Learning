@@ -9,19 +9,13 @@ struct vs_input
 {
     float3 Pos : POSITION;
     float3 Normal : NORMAL;
-    float2 TexCoords : TEXCOORD;
-    float3 Tangent : TANGENT;
-    float3 Bitangent : BITANGENT;
 };
 
 struct vs_output
 {
     float4 Pos : SV_POSITION;
     float3 WorldPos : POSITION;
-    float3 Normal : NORMAL;
-    float2 TexCoords : TEXCOORD;
-    float3 Tangent : TANGENT;
-    float3 Bitangent : BITANGENT;
+    float3 WorldNormal : NORMAL;
 };
 
 vs_output VS(vs_input Input)
@@ -30,10 +24,7 @@ vs_output VS(vs_input Input)
 
     Output.Pos = mul(mul(mul(float4(Input.Pos, 1.0), Model), View), Projection);
     Output.WorldPos = (float3)mul(float4(Input.Pos, 1.0), Model);
-    Output.Normal = normalize(mul(Input.Normal, (float3x3)Model));
-    Output.Tangent = normalize(mul(Input.Tangent, (float3x3)Model));
-    Output.Bitangent = normalize(mul(Input.Bitangent, (float3x3)Model));
-    Output.TexCoords = Input.TexCoords;
+    Output.WorldNormal = mul(Input.Normal, (float3x3)Model);
 
     return(Output);
 }

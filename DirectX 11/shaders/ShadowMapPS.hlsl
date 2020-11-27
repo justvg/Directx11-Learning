@@ -23,7 +23,7 @@ ps_output PS(vs_output Input)
 
     Output.WorldPos = Input.WorldPos;
     Output.WorldNormal = normalize(Input.WorldNormal);
-    Output.Flux = Color;
-
+    Output.Flux = 0.1*Color;
+    
     return(Output);
 }
