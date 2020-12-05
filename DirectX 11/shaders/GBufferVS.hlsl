@@ -14,7 +14,7 @@ struct vs_input
 struct vs_output
 {
     float4 Pos : SV_POSITION;
-    float3 WorldPos : POSITION;
+    float4 WorldPos : POSITION; // NOTE(georgy): W contains ViewSpaceZ
     float3 WorldNormal : NORMAL;
 };
 
@@ -22,8 +22,12 @@ vs_output VS(vs_input Input)
 {
     vs_output Output;
 
-    Output.Pos = mul(mul(mul(float4(Input.Pos, 1.0), Model), View), Projection);
-    Output.WorldPos = (float3)mul(float4(Input.Pos, 1.0), Model);
+    float4 WorldPos = mul(float4(Input.Pos, 1.0), Model);
+    float4 ViewPos = mul(WorldPos, View); 
+
+    Output.Pos = mul(ViewPos, Projection);
+    Output.WorldPos.xyz = WorldPos.xyz;
+    Output.WorldPos.w = ViewPos.z;
     Output.WorldNormal = mul(Input.Normal, (float3x3)Model);
 
     return(Output);

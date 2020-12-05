@@ -1,7 +1,7 @@
 struct vs_output
 {
     float4 Pos : SV_POSITION;
-    float3 WorldPos : POSITION;
+    float4 WorldPos : POSITION;
     float3 WorldNormal : NORMAL;
 };
 
@@ -18,12 +18,18 @@ cbuffer light_matrix : register(b2)
 
 cbuffer rsm_samples : register(b3)
 {
-    float2 RSMSamples[256];
+    float2 RSMSamples[64];
 };
 
 cbuffer rsm_noise : register(b4)
 {
     float2 RSMNoise[16];
+};
+
+cbuffer camera_info : register(b5)
+{
+    float4 WorldVectorsToFarCorners[4]; // NOTE(georgy): W of these vectors contain FarPlane distance
+    float4 CameraWorldPos;
 };
 
 Texture2D ShadowMap : register(t0);
@@ -62,7 +68,7 @@ float3 CalculateRSM(float3 FragWorldPos, float3 FragWorldNormal, float2 ScreenSp
 
     const float MaxRadius = 0.3;
     float3 IndirectIllumination = float3(0.0, 0.0, 0.0);
-    for(int I = 0; I < 256; I++)
+    for(int I = 0; I < 64; I++)
     {
         float2 SampleUV = UV + MaxRadius*mul(RSMSamples[I], NoiseMatrix);
 
@@ -78,7 +84,7 @@ float3 CalculateRSM(float3 FragWorldPos, float3 FragWorldNormal, float2 ScreenSp
         IndirectIllumination += IndirectBounce;
     }
 
-    IndirectIllumination = IndirectIllumination / 4.0;
+    IndirectIllumination = IndirectIllumination / 8.0;
     return(IndirectIllumination);
 }
 
@@ -87,6 +93,7 @@ struct gbuffer_output
     float4 Normal : SV_TARGET0;
     float4 RSMIndirectIllum : SV_TARGET1;
     float4 Color : SV_TARGET2;
+    float4 LinearDepth : SV_TARGET3;
 };
 
 gbuffer_output PS(vs_output Input, float4 ScreenSpacePos : SV_Position)
@@ -95,10 +102,13 @@ gbuffer_output PS(vs_output Input, float4 ScreenSpacePos : SV_Position)
 
     Output.Normal = float4(normalize(Input.WorldNormal), 0.0);
     
-    Output.RSMIndirectIllum.xyz = CalculateRSM(Input.WorldPos, Input.WorldNormal, ScreenSpacePos.xy);
-    Output.RSMIndirectIllum.w = CalculateShadow(Input.WorldPos);
-
+    Output.RSMIndirectIllum.xyz = CalculateRSM(Input.WorldPos.xyz, Input.WorldNormal, ScreenSpacePos.xy);
+    Output.RSMIndirectIllum.w = CalculateShadow(Input.WorldPos.xyz);
     Output.Color = float4(Color, 1.0);
+
+    float ViewSpaceZ = Input.WorldPos.w;
+    float FarPlane = WorldVectorsToFarCorners[0].w;
+    Output.LinearDepth = ViewSpaceZ / FarPlane;
 
     return(Output);
 }

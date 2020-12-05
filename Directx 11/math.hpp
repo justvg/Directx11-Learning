@@ -452,7 +452,7 @@ V4(v3 A, real32 W)
 	Result.x = A.x;
 	Result.y = A.y;
 	Result.z = A.z;
-	Result.w = A.w;
+	Result.w = W;
 
 	return(Result);
 }
@@ -637,6 +637,19 @@ operator*(mat4 A, mat4 B)
 	return(Result);
 }
 
+static v4
+operator*(v4 V, mat4 M)
+{
+	v4 Result;
+
+	Result.x = Dot(V, V4(M.a11, M.a21, M.a31, M.a41));
+	Result.y = Dot(V, V4(M.a12, M.a22, M.a32, M.a42));
+	Result.z = Dot(V, V4(M.a13, M.a23, M.a33, M.a43));
+	Result.w = Dot(V, V4(M.a14, M.a24, M.a34, M.a44));
+
+	return(Result);
+}
+
 inline mat4 
 Identity(float Diagonal = 1.0f)
 {
@@ -787,11 +800,11 @@ Orthographic(float Left, float Right, float Bottom, float Top, float Near, float
 static mat4 
 Perspective(real32 FoV, real32 AspectRatio, real32 Near, real32 Far)
 {
-	real32 ZoomY = 1.0f / tanf(DEG2RAD(FoV)*0.5f);
-	// TODO(georgy): ZoomX isn't exactly right!
-	real32 ZoomX = ZoomY * (1.0f / AspectRatio);
-
 	mat4 Result;
+
+#if 0
+	real32 ZoomY = 1.0f / tanf(DEG2RAD(FoV)*0.5f);
+	real32 ZoomX = ZoomY * (1.0f / AspectRatio);
 
 	real32 FRange = Far / (Far - Near);
 
@@ -814,6 +827,32 @@ Perspective(real32 FoV, real32 AspectRatio, real32 Near, real32 Far)
 	Result.a24 = 0.0f;
 	Result.a34 = 1.0f;
 	Result.a44 = 0.0f;
+#else
+	real32 Top = tanf(0.5f*DEG2RAD(FoV)) * Near;
+	real32 Bottom = -Top;
+	real32 Right = Top * AspectRatio;
+	real32 Left = -Right;
+
+	Result.a11 = 2.0f * Near / (Right - Left);
+	Result.a21 = 0.0f;
+	Result.a31 = -(Right + Left) / (Right - Left);
+	Result.a41 = 0.0f;
+
+	Result.a12 = 0.0f;
+	Result.a22 = 2.0f * Near / (Top - Bottom);
+	Result.a32 = -(Top + Bottom) / (Top - Bottom);
+	Result.a42 = 0.0f;
+
+	Result.a13 = 0.0f;
+	Result.a23 = 0.0f;
+	Result.a33 = Far / (Far - Near);
+	Result.a43 = -(Near*Far) / (Far - Near);
+	
+	Result.a14 = 0.0f;
+	Result.a24 = 0.0f;
+	Result.a34 = 1.0f;
+	Result.a44 = 0.0f;
+#endif
 
 	return(Result);
 }

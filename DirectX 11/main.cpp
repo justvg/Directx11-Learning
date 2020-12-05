@@ -374,6 +374,12 @@ void InitializeSceneObjects(char *Filename, model &Model, std::vector<vertex> &V
 	}
 }
 
+struct camera_info_buffer
+{
+	v4 WorldVectorsToFarCorners[4];
+	v4 CameraWorldPos;
+};
+
 int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowCode)
 {
@@ -671,11 +677,35 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			Direct3D->Device->CreateRenderTargetView(RSMIndirectIllumAfterBlurTexture, 0, &RSMIndirectIllumAfterBlurRTV);
 			Direct3D->Device->CreateShaderResourceView(RSMIndirectIllumAfterBlurTexture, 0, &RSMIndirectIllumAfterBlurSRV);
 
+
+			
+			ID3D11Texture2D *LinearDepthTexture;
+			ID3D11RenderTargetView *LinearDepthRTV;
+			ID3D11ShaderResourceView *LinearDepthSRV;
+			
+			D3D11_TEXTURE2D_DESC LinearDepthTextureDescr;
+			LinearDepthTextureDescr.Width = Direct3D->WindowWidth;
+			LinearDepthTextureDescr.Height = Direct3D->WindowHeight;
+			LinearDepthTextureDescr.MipLevels = 1;
+			LinearDepthTextureDescr.ArraySize = 1;
+			LinearDepthTextureDescr.Format = DXGI_FORMAT_R32_FLOAT;
+			LinearDepthTextureDescr.SampleDesc.Count = 1;
+			LinearDepthTextureDescr.SampleDesc.Quality = 0;
+			LinearDepthTextureDescr.Usage = D3D11_USAGE_DEFAULT;
+			LinearDepthTextureDescr.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+			LinearDepthTextureDescr.CPUAccessFlags = 0;
+			LinearDepthTextureDescr.MiscFlags = 0;
+
+			Direct3D->Device->CreateTexture2D(&LinearDepthTextureDescr, 0, &LinearDepthTexture);
+			Direct3D->Device->CreateRenderTargetView(LinearDepthTexture, 0, &LinearDepthRTV);
+			Direct3D->Device->CreateShaderResourceView(LinearDepthTexture, 0, &LinearDepthSRV);
+
+
 			
 			// NOTE(georgy): Generate samples for RSM
 			std::uniform_real_distribution<float> RandomFloats(0.0f, 1.0f);
 			std::default_random_engine Generator;
-			v4 RSMSamples[256];
+			v4 RSMSamples[64];
 			for(uint32_t I = 0; I < ArrayCount(RSMSamples); I++)
 			{
 				v4 Sample;
@@ -708,11 +738,24 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 			// NOTE(georgy): Compile and create deferre shaders
 			ID3D10Blob *VSBuffer;
+			ID3D10Blob *DeferredVSBuffer;
 			ID3D10Blob *PSBuffer;
 			ID3D10Blob *CompilationMessages = 0;
 
 			HRESULT ShaderCompileResult = D3DCompileFromFile(L"shaders/FullScreenQuadVS.hlsl", 0, 0, "VS", "vs_5_0", D3D10_SHADER_DEBUG | D3D10_SHADER_SKIP_OPTIMIZATION,
 															 0, &VSBuffer, &CompilationMessages);
+			if(CompilationMessages)
+			{
+				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
+				CompilationMessages->Release();
+			}
+			if (FAILED(Hr))
+			{
+				MessageBox(0, "D3D11CompileFromFile failed", 0, 0);
+			}
+
+			ShaderCompileResult = D3DCompileFromFile(L"shaders/DeferredVS.hlsl", 0, 0, "VS", "vs_5_0", D3D10_SHADER_DEBUG | D3D10_SHADER_SKIP_OPTIMIZATION,
+								 					 0, &DeferredVSBuffer, &CompilationMessages);
 			if(CompilationMessages)
 			{
 				MessageBox(0, (char *)CompilationMessages->GetBufferPointer(), 0, 0);
@@ -736,8 +779,10 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			}
 
 			ID3D11VertexShader *VS;
+			ID3D11VertexShader *DeferredVS;
 			ID3D11PixelShader *PS;
 			Direct3D->Device->CreateVertexShader(VSBuffer->GetBufferPointer(), VSBuffer->GetBufferSize(), 0, &VS);
+			Direct3D->Device->CreateVertexShader(DeferredVSBuffer->GetBufferPointer(), DeferredVSBuffer->GetBufferSize(), 0, &DeferredVS);
 			Direct3D->Device->CreatePixelShader(PSBuffer->GetBufferPointer(), PSBuffer->GetBufferSize(), 0, &PS);
 
 
@@ -1035,7 +1080,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 			Direct3D->Device->CreateBuffer(&RSMNoiseBufferDescr, &RSMSNoiseData, &RSMNoiseBuffer);
 
-			// NOTE(georgy): Create constant buffer for camera info
+			// NOTE(georgy): Create constant buffer for color info
 			ID3D11Buffer *ColorInfoBuffer;
 
 			D3D11_BUFFER_DESC ColorInfoBufferDescr;
@@ -1047,6 +1092,19 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			ColorInfoBufferDescr.StructureByteStride = 0;
 
 			Direct3D->Device->CreateBuffer(&ColorInfoBufferDescr, 0, &ColorInfoBuffer);
+
+			// NOTE(georgy): Create constant buffer for camera info
+			ID3D11Buffer *CameraInfoBuffer;
+
+			D3D11_BUFFER_DESC CameraInfoBufferDescr;
+			CameraInfoBufferDescr.ByteWidth = sizeof(camera_info_buffer);
+			CameraInfoBufferDescr.Usage = D3D11_USAGE_DYNAMIC;
+			CameraInfoBufferDescr.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+			CameraInfoBufferDescr.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+			CameraInfoBufferDescr.MiscFlags = 0;
+			CameraInfoBufferDescr.StructureByteStride = 0;
+
+			Direct3D->Device->CreateBuffer(&CameraInfoBufferDescr, 0, &CameraInfoBuffer);
 
 			// NOTE(georgy): Create texture and sampler state
 #if 0
@@ -1089,6 +1147,22 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 			SamplerDescr.MaxLOD = D3D11_FLOAT32_MAX;
 
 			Direct3D->Device->CreateSamplerState(&SamplerDescr, &SamplerState);
+
+
+			ID3D11SamplerState *PointSamplerState;
+			D3D11_SAMPLER_DESC PointSamplerDescr;
+			PointSamplerDescr.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+			PointSamplerDescr.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+			PointSamplerDescr.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+			PointSamplerDescr.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+			PointSamplerDescr.MipLODBias = 0;
+			PointSamplerDescr.MaxAnisotropy = 1;
+			PointSamplerDescr.ComparisonFunc = D3D11_COMPARISON_NEVER;
+			PointSamplerDescr.BorderColor[0] = SamplerDescr.BorderColor[1] = SamplerDescr.BorderColor[2] = SamplerDescr.BorderColor[3] = 0.0f;
+			PointSamplerDescr.MinLOD = -D3D11_FLOAT32_MAX;
+			PointSamplerDescr.MaxLOD = D3D11_FLOAT32_MAX;
+
+			Direct3D->Device->CreateSamplerState(&PointSamplerDescr, &PointSamplerState);
 
 
 			ID3D11SamplerState *ShadowMapSamplerState;
@@ -1134,12 +1208,30 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
             GameInput.MouseY = MouseP.y;
 
 
-			v3 CameraPos = V3(0.581630588f, 1.0f, -2.52652550f);
-			v3 CameraFront = V3(0.0f, 0.0f, 1.0f);
-			v3 CameraRight = V3(1.0f, 0.0f, 0.0f);
+			v3 CameraPos = V3(0.0f, 1.0f, -3.0f);// V3(0.581630588f, 1.0f, -2.52652550f);
 			float CameraPitch = 0.0f;
 			float CameraHead = 0.0f;
-			float MouseSensitivity = 0.005f;
+			v3 CameraFront = V3(sinf(DEG2RAD(CameraHead))*cosf(DEG2RAD(CameraPitch)), sinf(-DEG2RAD(CameraPitch)), cosf(DEG2RAD(CameraHead))*cosf(DEG2RAD(CameraPitch)));
+			v3 CameraRight = Normalize(Cross(V3(0.0f, 1.0f, 0.0f), CameraFront));
+			v3 CameraUp = Cross(CameraFront, CameraRight);
+			float MouseSensitivity = 0.3f;
+			float FoV = 45.0f;
+			float NearDistance = 0.1f; float FarDistance = 100.0f;
+			float AspectRatio = (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight;
+
+			real32 Top = tanf(0.5f*DEG2RAD(FoV)) * FarDistance;
+			real32 Right = Top * AspectRatio;
+
+			v4 FrustumFarCornersWorldSpace[4];
+			FrustumFarCornersWorldSpace[0] = V4(CameraPos, 0.0f) + V4(CameraFront*FarDistance - CameraRight*Right + CameraUp*Top, 1.0f);
+			FrustumFarCornersWorldSpace[1] = V4(CameraPos, 0.0f) + V4(CameraFront*FarDistance - CameraRight*Right - CameraUp*Top, 1.0f);
+			FrustumFarCornersWorldSpace[2] = V4(CameraPos, 0.0f) + V4(CameraFront*FarDistance + CameraRight*Right + CameraUp*Top, 1.0f);
+			FrustumFarCornersWorldSpace[3] = V4(CameraPos, 0.0f) + V4(CameraFront*FarDistance + CameraRight*Right - CameraUp*Top, 1.0f);
+			for(int I = 0; I < 4; I++)
+			{
+				FrustumFarCornersWorldSpace[I] = FrustumFarCornersWorldSpace[I] * LookAt(CameraPos, CameraPos + CameraFront);
+				FrustumFarCornersWorldSpace[I].w = FarDistance;
+			}
 
 			// NOTE(georgy): Game loop
 			real32 DeltaTime = 0.016f;
@@ -1170,7 +1262,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 				ProcessPendingMessages(&GameInput);
 
-				CameraRight = Cross(V3(0.0f, 1.0f, 0.0f), CameraFront);
+				CameraRight = Normalize(Cross(V3(0.0f, 1.0f, 0.0f), CameraFront));
+				CameraUp = Cross(CameraFront, CameraRight);
 				if(GameInput.MoveForward.EndedDown)
 				{
 					CameraPos += 10.0f*CameraFront*DeltaTime;
@@ -1193,7 +1286,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				CameraPitch = (CameraPitch > 89.0f) ? 89.0f : CameraPitch;
 				CameraPitch = (CameraPitch < -89.0f) ? -89.0f : CameraPitch;
 
-				CameraFront = V3(sinf(CameraHead)*cosf(CameraPitch), sinf(-CameraPitch), cosf(CameraHead)*cosf(CameraPitch));
+				CameraFront = V3(sinf(DEG2RAD(CameraHead))*cosf(DEG2RAD(CameraPitch)), sinf(-DEG2RAD(CameraPitch)), cosf(DEG2RAD(CameraHead))*cosf(DEG2RAD(CameraPitch)));
 
 				// NOTE(georgy): Render to shadow map
 				ID3D11RenderTargetView *RSMRenderTargets[] = {RSMWorldPosRTV, RSMNormalsRTV, FluxRTV};
@@ -1296,11 +1389,12 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 
 				// NOTE(georgy): Render to GBuffer
-				ID3D11RenderTargetView *GBuffer[] = {NormalsRTV, RSMIndirectIllumRTV, ColorRTV};
-				Direct3D->ImmediateContext->OMSetRenderTargets(3, GBuffer, Direct3D->DepthStencilView);
+				ID3D11RenderTargetView *GBuffer[] = {NormalsRTV, RSMIndirectIllumRTV, ColorRTV, LinearDepthRTV};
+				Direct3D->ImmediateContext->OMSetRenderTargets(ArrayCount(GBuffer), GBuffer, Direct3D->DepthStencilView);
 				Direct3D->ImmediateContext->ClearRenderTargetView(NormalsRTV, Colors::Black);
 				Direct3D->ImmediateContext->ClearRenderTargetView(RSMIndirectIllumRTV, Colors::Black);
 				Direct3D->ImmediateContext->ClearRenderTargetView(ColorRTV, Colors::Black);
+				Direct3D->ImmediateContext->ClearRenderTargetView(LinearDepthRTV, Colors::White);
 				Direct3D->ImmediateContext->ClearDepthStencilView(Direct3D->DepthStencilView, 
 																  D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL, 1.0f, 0.0f);
 
@@ -1325,12 +1419,24 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 				Direct3D->ImmediateContext->PSSetConstantBuffers(3, 1, &RSMSamplesBuffer);
 				Direct3D->ImmediateContext->PSSetConstantBuffers(4, 1, &RSMNoiseBuffer);
+
 				
+				Direct3D->ImmediateContext->Map(CameraInfoBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
+				camera_info_buffer *CameraInfoPtr = (camera_info_buffer *)MappedResource.pData;
+				for(int I = 0; I < 4; I++)
+				{
+					CameraInfoPtr->WorldVectorsToFarCorners[I] = FrustumFarCornersWorldSpace[I];
+				}
+				Direct3D->ImmediateContext->Unmap(CameraInfoBuffer, 0);
+				Direct3D->ImmediateContext->VSSetConstantBuffers(5, 1, &CameraInfoBuffer);
+				Direct3D->ImmediateContext->PSSetConstantBuffers(5, 1, &CameraInfoBuffer);
+
+
 				Direct3D->ImmediateContext->Map(MatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &MappedResource);
 				MatrixBufferPtr = (matrix_buffer *)MappedResource.pData;
 				MatrixBufferPtr->Model = Identity();
 				MatrixBufferPtr->View = LookAt(CameraPos, CameraPos + CameraFront);
-				MatrixBufferPtr->Projection = Perspective(45.0f, (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight, 0.1f, 100.0f);
+				MatrixBufferPtr->Projection = Perspective(FoV, AspectRatio, NearDistance, FarDistance);
 				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
 				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
@@ -1362,7 +1468,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				MatrixBufferPtr = (matrix_buffer *)MappedResource.pData;
 				MatrixBufferPtr->Model = Translate(V3(0.0f, 1.0f, 1.0f));
 				MatrixBufferPtr->View = LookAt(CameraPos, CameraPos + CameraFront);
-				MatrixBufferPtr->Projection = Perspective(45.0f, (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight, 0.1f, 100.0f);
+				MatrixBufferPtr->Projection = Perspective(FoV, AspectRatio, NearDistance, FarDistance);
 				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
 				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
@@ -1379,7 +1485,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				MatrixBufferPtr = (matrix_buffer *)MappedResource.pData;
 				MatrixBufferPtr->Model = Rotate(90.0f, V3(0.0f, 1.0f, 0.0f)) * Translate(V3(-1.0f, 1.0f, 0.0f));
 				MatrixBufferPtr->View = LookAt(CameraPos, CameraPos + CameraFront);
-				MatrixBufferPtr->Projection = Perspective(45.0f, (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight, 0.1f, 100.0f);
+				MatrixBufferPtr->Projection = Perspective(FoV, AspectRatio, NearDistance, FarDistance);
 				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
 				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
@@ -1396,7 +1502,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				MatrixBufferPtr = (matrix_buffer *)MappedResource.pData;
 				MatrixBufferPtr->Model = Rotate(-90.0f, V3(1.0f, 0.0, 0.0f));
 				MatrixBufferPtr->View = LookAt(CameraPos, CameraPos + CameraFront);
-				MatrixBufferPtr->Projection = Perspective(45.0f, (real32)Direct3D->WindowWidth / (real32)Direct3D->WindowHeight, 0.1f, 100.0f);
+				MatrixBufferPtr->Projection = Perspective(FoV, AspectRatio, NearDistance, FarDistance);
 				Direct3D->ImmediateContext->Unmap(MatrixBuffer, 0);
 				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &MatrixBuffer);
 
@@ -1408,7 +1514,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				
 				Direct3D->ImmediateContext->Draw(4, 0);
 
-				ID3D11ShaderResourceView* NullSRVs[] = { nullptr, nullptr, nullptr, nullptr };
+				ID3D11ShaderResourceView* NullSRVs[] = { nullptr, nullptr, nullptr, nullptr, nullptr };
 				Direct3D->ImmediateContext->PSSetShaderResources(0, 4, NullSRVs);
 
 				
@@ -1438,8 +1544,12 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->ClearRenderTargetView(Direct3D->RenderTargetView, Colors::Black);
 
 				Direct3D->ImmediateContext->IASetInputLayout(FullScreenQuadInputLayout);
-				Direct3D->ImmediateContext->VSSetShader(VS, 0, 0);
+				Direct3D->ImmediateContext->VSSetShader(DeferredVS, 0, 0);
 				Direct3D->ImmediateContext->PSSetShader(PS, 0, 0);
+
+				Direct3D->ImmediateContext->VSSetConstantBuffers(0, 1, &CameraInfoBuffer);
+				Direct3D->ImmediateContext->PSSetConstantBuffers(0, 1, &CameraInfoBuffer);
+				Direct3D->ImmediateContext->PSSetConstantBuffers(1, 1, &MatrixBuffer);
 
 				Direct3D->ImmediateContext->OMSetDepthStencilState(DepthAlwaysState, 0);
 
@@ -1450,11 +1560,12 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 				Direct3D->ImmediateContext->PSSetShaderResources(0, 1, &NormalsSRV);
 				Direct3D->ImmediateContext->PSSetShaderResources(1, 1, &RSMIndirectIllumAfterBlurSRV);
 				Direct3D->ImmediateContext->PSSetShaderResources(2, 1, &ColorSRV);
-				Direct3D->ImmediateContext->PSSetSamplers(0, 1, &SamplerState);
+				Direct3D->ImmediateContext->PSSetShaderResources(3, 1, &LinearDepthSRV);
+				Direct3D->ImmediateContext->PSSetSamplers(0, 1, &PointSamplerState);
 
 				Direct3D->ImmediateContext->Draw(4, 0);
 
-				Direct3D->ImmediateContext->PSSetShaderResources(0, 3, NullSRVs);
+				Direct3D->ImmediateContext->PSSetShaderResources(0, 4, NullSRVs);
 
 
 				DeltaTime = GetSecondsElapsed(LastCounter, GetWallClock());
